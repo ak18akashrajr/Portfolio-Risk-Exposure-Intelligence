@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlmodel
+yfinance
+pandas
+streamlit
+python-multipart
+requests
+httpx
+openpyxl
+plotly
