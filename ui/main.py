@@ -126,6 +126,34 @@ try:
             except Exception as e:
                 st.error(f"Risk Service Error: {e}")
                 
+            # Gold-Silver Ratio Analysis
+            st.markdown("---")
+            st.subheader("Commodities Intelligence (Gold/Silver)")
+            
+            try:
+                gs_resp = requests.get(f"{API_URL}/commodities/gold-silver")
+                if gs_resp.status_code == 200:
+                    gs_data = gs_resp.json()
+                    if "error" in gs_data:
+                        st.warning(gs_data["error"])
+                    else:
+                        g1, g2, g3 = st.columns(3)
+                        g1.metric("Gold (USD/g)", f"${gs_data.get('gold_usd_per_gram', 0):.2f}")
+                        g2.metric("Silver (USD/g)", f"${gs_data.get('silver_usd_per_gram', 0):.2f}")
+                        g3.metric("Gold-Silver Ratio", f"{gs_data.get('ratio', 0):.2f}")
+                        
+                        decision = gs_data.get('decision', 'N/A')
+                        if "SILVER" in decision:
+                            st.success(f"Strategy: {decision}")
+                        elif "GOLD" in decision:
+                            st.warning(f"Strategy: {decision}")
+                        else:
+                            st.info(f"Strategy: {decision}")
+                else:
+                    st.error("Could not fetch commodities data")
+            except Exception as e:
+                st.error(f"Commodities Service Error: {e}")
+
             # Stress Testing
             st.markdown("---")
             st.subheader("Stress Testing")
