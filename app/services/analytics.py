@@ -1,5 +1,5 @@
-from sqlmodel import Session
-from app.models import Portfolio, Transaction, Asset
+from sqlmodel import Session, select
+from app.models import Portfolio, Transaction, Asset, Holding
 from app.crud import get_transactions_by_portfolio, get_asset_by_symbol
 from app.services.yfinance_service import get_historical_prices, get_ticker_symbol
 import pandas as pd
@@ -10,28 +10,18 @@ def calculate_risk_metrics(session: Session, portfolio_id: UUID) -> dict:
     """
     Computes Volatility (Annualized), Beta (vs NIFTY 50), Max Drawdown
     """
-    txs = get_transactions_by_portfolio(session, portfolio_id)
-    if not txs:
+    # Source weights from current Holdings (Snapshot)
+    db_holdings = session.exec(select(Holding).where(Holding.portfolio_id == portfolio_id)).all()
+    if not db_holdings:
         return {}
     
-    # 1. Get current holdings weights
-    holdings = {}
-    total_value = 0.0
-    
-    for tx in txs:
-        asset = session.get(Asset, tx.asset_id)
-        if not asset: continue
-        
-        if asset.symbol not in holdings:
-            holdings[asset.symbol] = 0.0
-        
-        if tx.transaction_type == "BUY":
-            holdings[asset.symbol] += tx.quantity
-        elif tx.transaction_type == "SELL":
-             holdings[asset.symbol] -= tx.quantity
-             
-    # Filter zero holdings
-    active_holdings = {k: v for k, v in holdings.items() if v > 0}
+    active_holdings = {}
+    for h in db_holdings:
+        if h.quantity > 0:
+            asset = session.get(Asset, h.asset_id)
+            if asset and asset.asset_type == "Equity": # Risk only for Equity for now
+                 active_holdings[asset.symbol] = h.quantity
+
     if not active_holdings:
         return {}
         
