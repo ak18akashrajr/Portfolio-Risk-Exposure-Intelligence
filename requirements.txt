@@ -9,3 +9,4 @@ requests
 httpx
 openpyxl
 plotly
+pip-system-certs
