@@ -5,8 +5,12 @@ from typing import Optional
 
 def get_ticker_symbol(symbol: str, exchange: str = "NSE") -> str:
     if exchange == "NSE":
+        if symbol.endswith(".NS") or symbol.endswith(".BO"):
+            return symbol
         return f"{symbol}.NS"
     elif exchange == "BSE":
+        if symbol.endswith(".BO") or symbol.endswith(".NS"):
+             return symbol
         return f"{symbol}.BO"
     return symbol
 

@@ -1,0 +1,5 @@
+1. analyze order history and fetch holdings at portfolio
+(needs to be done systematically)
+2. make a dedicated transaction page, where the user could see the entire order history -> also Add feature to filter to view only 
+3. With that proper order_history current holdings needs to be displayed automatically.
+4. Also DB la id laan cache ah irukanum 

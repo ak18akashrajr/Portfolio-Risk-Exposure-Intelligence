@@ -11,17 +11,65 @@ st.title("Portfolio Risk & Exposure Intelligence (India)")
 
 # Sidebar Action
 st.sidebar.header("Actions")
-if st.sidebar.button("Refresh Data from Folder"):
-    try:
-        with st.spinner("Analyzing 'holdings_transactions' folder..."):
-            resp = requests.post(f"{API_URL}/portfolio/refresh")
-            if resp.status_code == 200:
-                st.sidebar.success("Data Refreshed!")
-                st.rerun()
-            else:
-                st.sidebar.error(f"Failed: {resp.text}")
-    except Exception as e:
-        st.sidebar.error(f"Connection Error: {e}")
+# Sidebar Action
+st.sidebar.header("Actions")
+# Refresh removed as per request (Direct DB Entry now)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Add Transaction")
+with st.sidebar.expander("New Transaction", expanded=False):
+    with st.form("add_txn_form"):
+        ticker = st.text_input("Ticker Symbol (e.g. TCS.NS)", placeholder="TCS.NS")
+        
+        # Search details
+        if st.form_submit_button("Search Ticker"):
+            if ticker:
+                try: 
+                    s_resp = requests.get(f"{API_URL}/portfolio/search/{ticker}")
+                    if s_resp.status_code == 200:
+                        info = s_resp.json()
+                        st.session_state['last_ticker'] = ticker
+                        st.session_state['last_price'] = info.get('current_price', 0)
+                        st.session_state['last_sector'] = info.get('sector', 'Unknown')
+                        st.success(f"Found: {ticker}")
+                    else:
+                        st.error("Not Found")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    # Use session state to populate
+    final_ticker = st.text_input("Confirm Ticker", value=st.session_state.get('last_ticker', ''))
+    
+    if st.session_state.get('last_price'):
+        st.info(f"Price: ₹{st.session_state.get('last_price')} | Sector: {st.session_state.get('last_sector')}")
+
+    txn_type = st.selectbox("Type", ["BUY", "SELL"])
+    qty = st.number_input("Quantity", min_value=0.01, step=1.0)
+    price = st.number_input("Avg Price", min_value=0.0, value=float(st.session_state.get('last_price', 0.0)))
+    date_txn = st.date_input("Date", value=pd.Timestamp.now())
+    
+    if st.button("Add to Portfolio"):
+        if final_ticker and qty > 0:
+            payload = {
+                "symbol": final_ticker,
+                "transaction_date": str(date_txn),
+                "quantity": qty,
+                "price": price,
+                "transaction_type": txn_type
+            }
+            try:
+                resp = requests.post(f"{API_URL}/portfolio/transaction", json=payload)
+                if resp.status_code == 200:
+                    st.success("Added! Refreshing...")
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(f"Failed: {resp.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+        else:
+            st.warning("Please enter valid Ticker and Qty")
 
 # Main Dashboard
 try:

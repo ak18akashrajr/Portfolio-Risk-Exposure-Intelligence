@@ -1,23 +1,56 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select
 from app.database import get_session
-from app.schemas import PortfolioRead
-from app.services.importer import ingest_folder
+from app.schemas import PortfolioRead, TransactionCreate
+from app.services.portfolio_service import add_transaction_direct, ensure_default_user_and_portfolio, ensure_asset
 from app.models import Portfolio, Asset, Holding
 from app.crud import get_transactions_by_portfolio
-from app.services.yfinance_service import get_asset_info
+from app.services.yfinance_service import get_asset_info, get_ticker_symbol
 from uuid import UUID
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
-@router.post("/refresh")
-def refresh_data(session: Session = Depends(get_session)):
+@router.post("/init")
+def init_portfolio(session: Session = Depends(get_session)):
     """
-    Triggers re-ingestion from holdings_transactions folder
+    Ensures default portfolio exists.
     """
     try:
-        portfolio_id = ingest_folder(session)
-        return {"message": "Data refreshed successfully", "portfolio_id": portfolio_id}
+        p = ensure_default_user_and_portfolio(session)
+        return {"message": "Portfolio Initialized", "portfolio_id": p.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/transaction")
+def create_transaction(txn: TransactionCreate, session: Session = Depends(get_session)):
+    """
+    Directly adds a transaction and updates holdings
+    """
+    try:
+        # 1. Add directly to DB
+        add_transaction_direct(session, txn)
+        
+        return {"message": "Transaction added successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/search/{symbol}")
+def search_ticker(symbol: str):
+    """
+    Searches for a ticker on YFinance and returns details (Price, Sector, etc.)
+    """
+    try:
+        yf_sym = get_ticker_symbol(symbol)
+        info = get_asset_info(yf_sym)
+        if not info or info.get("current_price", 0) == 0:
+             # Try without .NS if failed?
+             if ".NS" in yf_sym:
+                 info = get_asset_info(symbol)
+        
+        if not info:
+            raise HTTPException(status_code=404, detail="Ticker not found")
+            
+        return info
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
