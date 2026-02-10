@@ -2,4 +2,10 @@
 (needs to be done systematically)
 2. make a dedicated transaction page, where the user could see the entire order history -> also Add feature to filter to view only 
 3. With that proper order_history current holdings needs to be displayed automatically.
-4. Also DB la id laan cache ah irukanum 
+4. Also DB la id laan cache ah irukanum
+
+
+Now currently the the data can be uploaded manually,
+ I wanted you to analyze the '.xlsx' file where the order_history 
+ would be passed to you. You need to pass those data to the db.
+  Hope you get that.
