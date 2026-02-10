@@ -106,3 +106,34 @@ def update_holdings(session: Session):
             session.add(holding)
     
     session.commit()
+
+import random
+
+def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity: int, price: float, exchange: str, stock_name: str = None, isin: str = None):
+    # Auto-fetch metadata from existing holdings if not provided
+    if not stock_name or not isin:
+        existing_holding = session.get(Holding, symbol)
+        if existing_holding:
+            stock_name = stock_name or existing_holding.stock_name
+            isin = isin or existing_holding.isin
+    
+    # Generate random order_id in format 1200000004627407.0
+    order_id = f"{random.randint(1000000000000000, 9999999999999999)}.0"
+    
+    transaction = Transaction(
+        stock_name=stock_name or symbol,
+        symbol=symbol,
+        isin=isin or "MANUAL",
+        type=tx_type,
+        quantity=quantity,
+        price=price,
+        exchange=exchange,
+        order_id=order_id,
+        execution_time=datetime.now(),
+        status="Executed"
+    )
+    
+    session.add(transaction)
+    session.commit()
+    update_holdings(session)
+    return transaction

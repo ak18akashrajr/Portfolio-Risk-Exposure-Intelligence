@@ -12,7 +12,7 @@ st.title("📊 Portfolio Risk Exposure Intelligence")
 
 # Sidebar for Navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Dashboard", "Transactions", "Upload Data"])
+page = st.sidebar.radio("Go to", ["Dashboard", "Transactions", "Manual Transaction", "Upload Data"])
 
 if page == "Upload Data":
     st.header("📤 Upload Portfolio Data")
@@ -21,7 +21,6 @@ if page == "Upload Data":
     if uploaded_file is not None:
         if st.button("Process File"):
             with st.spinner("Processing..."):
-                files = {"file": uploaded_file.getvalue()}
                 try:
                     response = requests.post(f"{BACKEND_URL}/upload", files={"file": (uploaded_file.name, uploaded_file.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
                     if response.status_code == 200:
@@ -31,7 +30,49 @@ if page == "Upload Data":
                 except Exception as e:
                     st.error(f"Could not connect to backend: {e}")
 
+elif page == "Manual Transaction":
+    st.header("✍️ Add Transaction Manually")
+    
+    with st.form("manual_entry_form"):
+        symbol = st.text_input("Stock Symbol (e.g. RELIANCE.NS)").upper()
+        tx_type = st.selectbox("Type", ["BUY", "SELL"])
+        quantity = st.number_input("Quantity", min_value=1, step=1)
+        price = st.number_input("Total Transaction Value (₹)", min_value=0.01) # User specified 'price' is 'Value'
+        exchange = st.selectbox("Exchange", ["NSE", "BSE"])
+        
+        # Metadata (Optional if existing)
+        st.info("Metadata below is optional if the ticker already exists in your holdings.")
+        stock_name = st.text_input("Stock Name (Optional)")
+        isin = st.text_input("ISIN (Optional)")
+        
+        submitted = st.form_submit_button("Add Transaction")
+        
+        if submitted:
+            if not symbol:
+                st.error("Symbol is required.")
+            else:
+                payload = {
+                    "symbol": symbol,
+                    "type": tx_type,
+                    "quantity": quantity,
+                    "price": price,
+                    "exchange": exchange,
+                    "stock_name": stock_name if stock_name else None,
+                    "isin": isin if isin else None
+                }
+                
+                try:
+                    response = requests.post(f"{BACKEND_URL}/transactions/manual", json=payload)
+                    if response.status_code == 200:
+                        st.success(f"Transaction added! Order ID: {response.json().get('order_id')}")
+                        st.balloons()
+                    else:
+                        st.error(f"Error: {response.json().get('detail')}")
+                except Exception as e:
+                    st.error(f"Failed to connect to backend: {e}")
+
 elif page == "Dashboard":
+    # ... existing code ...
     st.header("📈 Portfolio Overview")
     
     try:

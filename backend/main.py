@@ -5,8 +5,10 @@ import os
 import shutil
 from .database import get_session, create_db_and_tables
 from .models import Transaction, Holding
-from .ingestion import ingest_excel
+from .ingestion import ingest_excel, update_holdings, add_manual_transaction
+from .schemas import ManualTransactionInput
 from sqlmodel import select
+from datetime import datetime
 
 app = FastAPI(title="Portfolio Risk Exposure Intelligence API")
 
@@ -32,6 +34,23 @@ async def upload_file(file: UploadFile = File(...)):
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+@app.post("/transactions/manual")
+async def manual_entry(data: ManualTransactionInput, session: Session = Depends(get_session)):
+    try:
+        transaction = add_manual_transaction(
+            session=session,
+            symbol=data.symbol.upper(),
+            tx_type=data.type.upper(),
+            quantity=data.quantity,
+            price=data.price,
+            exchange=data.exchange.upper(),
+            stock_name=data.stock_name,
+            isin=data.isin
+        )
+        return {"message": "Transaction added successfully", "order_id": transaction.order_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding transaction: {str(e)}")
 
 @app.get("/transactions", response_model=List[Transaction])
 def get_transactions(session: Session = Depends(get_session)):
