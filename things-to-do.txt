@@ -1,6 +1,5 @@
 [to-do]
 add manual data adding feature (partially done) [test w/ new ticker]
-add geographical context 
 fetch-real-time--price viz yfinance
 fetch rolling returns
 add gsr ratio
@@ -14,3 +13,5 @@ add gsr ratio
 3. With that proper order_history current holdings needs to be displayed automatically.
 4. Also DB la id laan cache ah irukanum
 5. dynamic filter to be added at transaction page, [not needed explicit ah na pathukuren, db la irundhu direct ah query panikalam]
+6. add geographical context 
+7. add asset category(Equity(Stocks), Debt(Bonds, FD), Commodities, REITs, Cash)

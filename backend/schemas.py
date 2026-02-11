@@ -11,4 +11,5 @@ class ManualTransactionInput(BaseModel):
     stock_name: Optional[str] = None
     isin: Optional[str] = None
     geography: Optional[str] = "India"
+    category: Optional[str] = "Equity(Stocks)"
     execution_time: Optional[datetime] = None

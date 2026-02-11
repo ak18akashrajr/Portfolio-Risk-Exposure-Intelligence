@@ -139,6 +139,7 @@ with tabs[2]: # Manual Transaction
             quantity = st.number_input("Quantity", min_value=1, step=1)
             price = st.number_input("Total Transaction Value (₹)", min_value=0.01)
             geography = st.text_input("Geography", value="India")
+            category = st.selectbox("Asset Category", ["Equity(Stocks)", "Debt(Bonds, FD)", "Commodity", "REIT", "Liquid Cash"])
             
         st.divider()
         st.markdown("### Optional Metadata")
@@ -162,7 +163,8 @@ with tabs[2]: # Manual Transaction
                     "exchange": exchange,
                     "stock_name": stock_name if stock_name else None,
                     "isin": isin if isin else None,
-                    "geography": geography
+                    "geography": geography,
+                    "category": category
                 }
                 
                 try:
@@ -194,10 +196,11 @@ with tabs[0]: # Dashboard
                 st.divider()
                 
                 # Visualizations
-                col1, col2 = st.columns([1, 1.2])
+                st.subheader("Portfolio Distribution")
+                c1, c2, c3 = st.columns(3)
                 
-                with col1:
-                    st.subheader("Asset Allocation")
+                with c1:
+                    st.markdown("<p style='text-align: center; font-weight: 600;'>Asset Allocation</p>", unsafe_allow_html=True)
                     fig_pie = px.pie(
                         df_holdings, 
                         values='total_invested', 
@@ -214,13 +217,51 @@ with tabs[0]: # Dashboard
                     )
                     st.plotly_chart(fig_pie, use_container_width=True)
                 
-                with col2:
-                    st.subheader("Real-time Holdings")
-                    st.dataframe(
-                        df_holdings[['stock_name', 'symbol', 'geography', 'quantity', 'avg_price', 'total_invested']],
-                        use_container_width=True,
-                        height=400
+                with c2:
+                    st.markdown("<p style='text-align: center; font-weight: 600;'>Category Exposure</p>", unsafe_allow_html=True)
+                    df_cat = df_holdings.groupby('category')['total_invested'].sum().reset_index()
+                    fig_cat = px.pie(
+                        df_cat,
+                        values='total_invested',
+                        names='category',
+                        color_discrete_sequence=px.colors.sequential.Blues_r,
+                        hole=0.4
                     )
+                    fig_cat.update_layout(
+                        margin=dict(t=0, b=0, l=0, r=0),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font_color="white",
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_cat, use_container_width=True)
+
+                with c3:
+                    st.markdown("<p style='text-align: center; font-weight: 600;'>Geographic Exposure</p>", unsafe_allow_html=True)
+                    df_geo = df_holdings.groupby('geography')['total_invested'].sum().reset_index()
+                    fig_geo = px.pie(
+                        df_geo,
+                        values='total_invested',
+                        names='geography',
+                        color_discrete_sequence=px.colors.sequential.Purp_r,
+                        hole=0.4
+                    )
+                    fig_geo.update_layout(
+                        margin=dict(t=0, b=0, l=0, r=0),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font_color="white",
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_geo, use_container_width=True)
+                
+                st.divider()
+                st.subheader("Real-time Holdings Details")
+                st.dataframe(
+                    df_holdings[['stock_name', 'symbol', 'category', 'geography', 'quantity', 'avg_price', 'total_invested']],
+                    use_container_width=True,
+                    height=300
+                )
                 
                 st.divider()
                 st.subheader("Capital Deployment History")
@@ -270,7 +311,7 @@ with tabs[1]: # Transactions
                 df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'])
                 
                 st.dataframe(
-                    df_tx[['execution_time', 'stock_name', 'symbol', 'type', 'quantity', 'price', 'geography', 'exchange', 'order_id']].sort_values(by='execution_time', ascending=False),
+                    df_tx[['execution_time', 'stock_name', 'symbol', 'type', 'quantity', 'price', 'category', 'geography', 'exchange', 'order_id']].sort_values(by='execution_time', ascending=False),
                     use_container_width=True,
                     height=500
                 )

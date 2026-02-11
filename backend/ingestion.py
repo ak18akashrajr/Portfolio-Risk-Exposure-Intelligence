@@ -45,6 +45,7 @@ def ingest_excel(file_path: str):
                     order_id=str(row['order_id']),
                     execution_time=row['execution_time'],
                     geography="India",
+                    category="Commodity" if str(row['symbol']).upper() == "GOLDBEES" else "Equity(Stocks)",
                     status=row['status']
                 )
                 session.add(transaction)
@@ -66,13 +67,15 @@ def update_holdings(session: Session):
                 'total_buy_quantity': 0,
                 'total_buy_value': 0.0,
                 'geography': tx.geography,
+                'category': tx.category,
                 'last_transaction_date': tx.execution_time
             }
         
-        # Update last transaction date and geography (latest wins)
+        # Update last transaction date, geography, and category (latest wins)
         if tx.execution_time > holdings_dict[tx.symbol]['last_transaction_date']:
             holdings_dict[tx.symbol]['last_transaction_date'] = tx.execution_time
             holdings_dict[tx.symbol]['geography'] = tx.geography
+            holdings_dict[tx.symbol]['category'] = tx.category
 
         if tx.type.upper() == 'BUY':
             holdings_dict[tx.symbol]['current_quantity'] += tx.quantity
@@ -96,6 +99,7 @@ def update_holdings(session: Session):
                 holding.total_invested = data['current_quantity'] * avg_price # Current value at cost
                 holding.isin = data['isin']
                 holding.geography = data['geography']
+                holding.category = data['category']
                 holding.last_transaction_date = data['last_transaction_date']
             else:
                 holding = Holding(
@@ -106,6 +110,7 @@ def update_holdings(session: Session):
                     avg_price=avg_price,
                     total_invested=data['current_quantity'] * avg_price,
                     geography=data['geography'],
+                    category=data['category'],
                     last_transaction_date=data['last_transaction_date']
                 )
             session.add(holding)
@@ -114,7 +119,7 @@ def update_holdings(session: Session):
 
 import random
 
-def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity: int, price: float, exchange: str, stock_name: str = None, isin: str = None, geography: str = "India"):
+def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity: int, price: float, exchange: str, stock_name: str = None, isin: str = None, geography: str = "India", category: str = "Equity(Stocks)"):
     # Auto-fetch metadata from existing holdings if not provided
     if not stock_name or not isin:
         existing_holding = session.get(Holding, symbol)
@@ -122,6 +127,7 @@ def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity
             stock_name = stock_name or existing_holding.stock_name
             isin = isin or existing_holding.isin
             geography = geography or existing_holding.geography
+            category = category or existing_holding.category
     
     # Generate random order_id in format 1200000004627407.0
     order_id = f"{random.randint(1000000000000000, 9999999999999999)}.0"
@@ -137,6 +143,7 @@ def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity
         order_id=order_id,
         execution_time=datetime.now(),
         geography=geography or "India",
+        category=category or "Equity(Stocks)",
         status="Executed"
     )
     
