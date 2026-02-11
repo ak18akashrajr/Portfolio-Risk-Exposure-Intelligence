@@ -1,7 +1,8 @@
 [to-do]
 add manual data adding feature (partially done) [test w/ new ticker]
-fetch-real-time--price viz yfinance
 add geographical context 
+fetch-real-time--price viz yfinance
+fetch rolling returns
 add gsr ratio
 
 
@@ -12,4 +13,4 @@ add gsr ratio
 2. make a dedicated transaction page, where the user could see the entire order history -> also Add feature to filter to view only 
 3. With that proper order_history current holdings needs to be displayed automatically.
 4. Also DB la id laan cache ah irukanum
-5. dynamic filter to be added at transaction page, [not needed explicit ah na pathukuren]
+5. dynamic filter to be added at transaction page, [not needed explicit ah na pathukuren, db la irundhu direct ah query panikalam]

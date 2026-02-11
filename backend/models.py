@@ -13,6 +13,7 @@ class Transaction(SQLModel, table=True):
     exchange: str
     order_id: str = Field(index=True)
     execution_time: datetime
+    geography: str = Field(default="India")
     status: str
 
 class Holding(SQLModel, table=True):
@@ -22,4 +23,5 @@ class Holding(SQLModel, table=True):
     quantity: int
     avg_price: float
     total_invested: float
+    geography: str = Field(default="India")
     last_transaction_date: Optional[datetime] = None

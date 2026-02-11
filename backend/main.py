@@ -46,7 +46,8 @@ async def manual_entry(data: ManualTransactionInput, session: Session = Depends(
             price=data.price,
             exchange=data.exchange.upper(),
             stock_name=data.stock_name,
-            isin=data.isin
+            isin=data.isin,
+            geography=data.geography
         )
         return {"message": "Transaction added successfully", "order_id": transaction.order_id}
     except Exception as e:
