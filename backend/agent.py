@@ -39,10 +39,10 @@ def get_transaction_stats(month: int = None, year: int = None):
         
         return {
             "period": f"{month if month else 'All'}/{year if year else 'All'}",
-            "total_buy_value": buys,
-            "total_sell_value": sells,
+            "total_buy_value_INR": buys,
+            "total_sell_value_INR": sells,
             "transaction_count": count,
-            "transactions": [{"date": t.execution_time.strftime("%Y-%m-%d"), "name": t.stock_name, "type": t.type, "qty": t.quantity, "price": t.price} for t in results]
+            "transactions": [{"date": t.execution_time.strftime("%Y-%m-%d"), "name": t.stock_name, "type": t.type, "qty": t.quantity, "total_transaction_value": t.price} for t in results]
         }
 
 # --- Tool Definitions for Groq ---
@@ -80,11 +80,13 @@ def get_ai_response(history: list):
     system_prompt = {
         "role": "system",
         "content": (
-            "You are a sophisticated Portfolio Assistant. Your goals are:\n"
-            "1. PROVIDE DETAIL: Instead of brief answers, provide specific valuations, quantities, and breakdown percentages where relevant.\n"
-            "2. DATA GROUNDING: Use the provided tools to fetch real data before answering. Never hallucinate.\n"
-            "3. PROACTIVE FOLLOW-UP: ALWAYS end your response with a relevant, open-ended follow-up question that helps the user explore their portfolio deeper.\n"
-            "4. CONVERSATIONAL: Maintain context from the previous chat history provided."
+            "You are a highly precise Portfolio Assistant. STRICT RULES:\n"
+            "1. CURRENCY: Use '₹' (INR) for all monetary values. NEVER use '$'. All valuations are in INR.\n"
+            "2. DATA DEFINITION: In transaction tools, `total_transaction_value` is the SUM paid for the entire quantity. It is NOT the unit price.\n"
+            "3. CALCULATION RULE: To find the unit price, DIVIDE `total_transaction_value` by `quantity`. NEVER multiply `total_transaction_value` by `quantity` to find a total; it is already the total.\n"
+            "4. CONTEXT: If pronouns like 'that/it/the purchase' are used, refer to the entity in the IMMEDIATE PREVIOUS turn.\n"
+            "5. NO HALLUCINATION: If data is missing or ambiguous, state that clearly. Do not invent numbers.\n"
+            "6. FOLLOW-UP STYLE: ALWAYS end your response with a highly relevant follow-up question formatted as: 'Do you want to know, [Related Query]?'"
         )
     }
     
