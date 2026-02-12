@@ -98,6 +98,65 @@ st.markdown("""
         justify-content: center;
         align-items: center;
     }
+
+    /* ChatGPT-style Chat Bubbles */
+    [data-testid="stChatMessage"] {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border-radius: 12px !important;
+        padding: 1.2rem !important;
+        margin-bottom: 1rem !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1) !important;
+        transition: all 0.3s ease !important;
+    }
+    [data-testid="stChatMessage"]:hover {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* Differentiate User and Assistant bubbles */
+    [data-testid="stChatMessage"][data-testid="stChatMessageContent"] {
+        margin-left: 0 !important;
+    }
+    
+    /* User Message Styling */
+    section[data-testid="stChatMessage"]:has(img[alt="user"]) {
+        border-left: 4px solid #38bdf8 !important;
+    }
+
+    /* Assistant Message Styling */
+    section[data-testid="stChatMessage"]:has(img[alt="assistant"]) {
+        border-left: 4px solid #10b981 !important;
+    }
+
+    /* Chat Input Styling - Pin to bottom with premium glassmorphism */
+    [data-testid="stChatInput"] {
+        position: fixed !important;
+        bottom: 2rem !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 70% !important;
+        max-width: 1000px !important;
+        background: rgba(15, 23, 42, 0.9) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 -5px 25px rgba(0, 0, 0, 0.2) !important;
+        z-index: 1000 !important;
+    }
+    
+    /* Ensure chat history has space to scroll above fixed input */
+    .stChatFloatingInputContainer {
+        padding-bottom: 5rem !important;
+        background-color: transparent !important;
+    }
+
+    /* Better typography for chat */
+    .stChatMessage p {
+        font-size: 1rem !important;
+        line-height: 1.6 !important;
+        color: #e2e8f0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -323,20 +382,36 @@ with tabs[1]: # Transactions
         st.error(f"📡 Backend unreachable: {e}")
 
 with tabs[4]: # AI Assistant
-    st.header("🤖 Portfolio AI Assistant")
-    st.info("Ask anything about your holdings, transactions, or geographic exposure.")
+    st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🤖 GPT Portfolio Assistant</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Real-time AI analysis for your portfolio.</p>", unsafe_allow_html=True)
+    st.divider()
+    
+    # Create a scrollable container for the chat history
+    chat_container = st.container()
     
     # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    
+    with chat_container:
+        # Show welcome message if no history
+        if not st.session_state.messages:
+            with st.chat_message("assistant"):
+                st.markdown("""
+                Hello! I'm your **GPT Portfolio Assistant**. I have real-time access to your holdings and transaction history.
+                
+                How can I help you today? You can ask me things like:
+                - *'What is my total exposure in India?'*
+                - *'Compare my November 2024 and 2025 transactions.'*
+                """)
 
-    # Display chat messages from history on app rerun
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        # Display chat messages from history
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-    # React to user input
-    if prompt := st.chat_input("What is my total exposure in India?"):
+    # Chat input is placed outside the container to keep it pinned via Streamlit's native mechanism
+    if prompt := st.chat_input("Ask a question about your portfolio..."):
         # Display user message in chat message container
         st.chat_message("user").markdown(prompt)
         # Add user message to chat history
