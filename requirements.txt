@@ -10,3 +10,5 @@ httpx
 openpyxl
 plotly
 pip-system-certs
+groq
+python-dotenv

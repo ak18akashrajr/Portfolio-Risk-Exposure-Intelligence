@@ -7,7 +7,9 @@ from .database import get_session, create_db_and_tables
 from .models import Transaction, Holding
 from .ingestion import ingest_excel, update_holdings, add_manual_transaction
 from .schemas import ManualTransactionInput
+from .agent import get_ai_response
 from sqlmodel import select
+from pydantic import BaseModel
 from datetime import datetime
 
 app = FastAPI(title="Portfolio Risk Exposure Intelligence API")
@@ -61,6 +63,17 @@ def get_transactions(session: Session = Depends(get_session)):
 @app.get("/holdings", response_model=List[Holding])
 def get_holdings(session: Session = Depends(get_session)):
     return session.exec(select(Holding)).all()
+
+class ChatRequest(BaseModel):
+    query: str
+
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    try:
+        response = get_ai_response(request.query)
+        return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in chat: {str(e)}")
 
 @app.get("/health")
 def health_check():

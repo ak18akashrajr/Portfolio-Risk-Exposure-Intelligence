@@ -105,7 +105,7 @@ st.markdown("""
 st.markdown("<h1 style='text-align: center;'>🚀 Portfolio Risk & Exposure Intelligence</h1>", unsafe_allow_html=True)
 
 # Top Navigation Bar using Tabs
-tabs = st.tabs(["📈 Dashboard", "📜 Transactions", "✍️ Manual Entry", "📤 Upload Data"])
+tabs = st.tabs(["📈 Dashboard", "📜 Transactions", "✍️ Manual Entry", "📤 Upload Data", "🤖 AI Assistant"])
 
 with tabs[3]: # Upload Data
     st.header("Upload Portfolio Data")
@@ -321,3 +321,38 @@ with tabs[1]: # Transactions
             st.error("Failed to fetch transactions.")
     except Exception as e:
         st.error(f"📡 Backend unreachable: {e}")
+
+with tabs[4]: # AI Assistant
+    st.header("🤖 Portfolio AI Assistant")
+    st.info("Ask anything about your holdings, transactions, or geographic exposure.")
+    
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Display chat messages from history on app rerun
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # React to user input
+    if prompt := st.chat_input("What is my total exposure in India?"):
+        # Display user message in chat message container
+        st.chat_message("user").markdown(prompt)
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+        try:
+            with st.spinner("AI is thinking..."):
+                response = requests.post(f"{BACKEND_URL}/chat", json={"query": prompt})
+                if response.status_code == 200:
+                    answer = response.json().get("response")
+                    # Display assistant response in chat message container
+                    with st.chat_message("assistant"):
+                        st.markdown(answer)
+                    # Add assistant response to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                else:
+                    st.error(f"❌ Error: {response.json().get('detail', 'Failed to get response')}")
+        except Exception as e:
+            st.error(f"📡 Connection failure: {e}")
