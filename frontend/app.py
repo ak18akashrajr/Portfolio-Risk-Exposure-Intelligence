@@ -344,7 +344,11 @@ with tabs[4]: # AI Assistant
 
         try:
             with st.spinner("AI is thinking..."):
-                response = requests.post(f"{BACKEND_URL}/chat", json={"query": prompt})
+                # Send the full history including the new user message
+                response = requests.post(
+                    f"{BACKEND_URL}/chat", 
+                    json={"history": st.session_state.messages}
+                )
                 if response.status_code == 200:
                     answer = response.json().get("response")
                     # Display assistant response in chat message container

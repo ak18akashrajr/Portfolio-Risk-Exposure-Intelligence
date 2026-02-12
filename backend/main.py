@@ -64,13 +64,19 @@ def get_transactions(session: Session = Depends(get_session)):
 def get_holdings(session: Session = Depends(get_session)):
     return session.exec(select(Holding)).all()
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
-    query: str
+    history: List[ChatMessage]
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
-        response = get_ai_response(request.query)
+        # Convert history to list of dicts for the agent
+        history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
+        response = get_ai_response(history_dicts)
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in chat: {str(e)}")

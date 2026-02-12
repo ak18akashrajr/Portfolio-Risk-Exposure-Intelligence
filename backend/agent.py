@@ -73,17 +73,23 @@ tools = [
     }
 ]
 
-def get_ai_response(user_query: str):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are a Portfolio Assistant. Use the provided tools to fetch data before answering. If comparison is requested, fetch data for both periods. Be concise and professional."
-        },
-        {
-            "role": "user",
-            "content": user_query,
-        }
-    ]
+def get_ai_response(history: list):
+    """
+    history is a list of dicts: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    """
+    system_prompt = {
+        "role": "system",
+        "content": (
+            "You are a sophisticated Portfolio Assistant. Your goals are:\n"
+            "1. PROVIDE DETAIL: Instead of brief answers, provide specific valuations, quantities, and breakdown percentages where relevant.\n"
+            "2. DATA GROUNDING: Use the provided tools to fetch real data before answering. Never hallucinate.\n"
+            "3. PROACTIVE FOLLOW-UP: ALWAYS end your response with a relevant, open-ended follow-up question that helps the user explore their portfolio deeper.\n"
+            "4. CONVERSATIONAL: Maintain context from the previous chat history provided."
+        )
+    }
+    
+    # Start with system prompt and history
+    messages = [system_prompt] + history
 
     try:
         # First call to see if tools are needed
