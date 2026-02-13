@@ -1,6 +1,6 @@
 [to-do]
 
-delete transaction Check
+delete transaction Check via LLM. 
 also fix model response
 implement agentic model(
     live market data agent
