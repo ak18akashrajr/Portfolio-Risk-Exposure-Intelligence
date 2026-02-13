@@ -1,106 +1,308 @@
 import os
 import json
+import yfinance as yf
 from groq import Groq
 from dotenv import load_dotenv
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, text
 from .database import engine
 from .models import Transaction, Holding
+from .ingestion import add_manual_transaction, update_holdings
+from .utils import get_market_data_mock
 from datetime import datetime
 
 load_dotenv()
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# --- Tool Functions ---
+# --- Specialized Tool Functions ---
 
-def get_holdings_summary():
-    """Returns a summary of current stock holdings."""
+def execute_sql_query(query: str):
+    """
+    Executes a read-only SQL query on the portfolio database.
+    Useful for complex aggregations, filtering, and analysis.
+    Only SELECT statements are allowed.
+    """
+    if not query.strip().upper().startswith("SELECT"):
+        return {"error": "Only SELECT queries are allowed for security reasons."}
+    
     with Session(engine) as session:
-        statement = select(Holding)
-        results = session.exec(statement).all()
-        return [{"name": h.stock_name, "symbol": h.symbol, "qty": h.quantity, "avg_price": h.avg_price, "total": h.total_invested, "geo": h.geography, "cat": h.category} for h in results]
+        try:
+            result = session.exec(text(query))
+            # Convert results to list of dicts
+            rows = [dict(row._mapping) for row in result]
+            return {
+                "status": "success",
+                "data": rows,
+                "count": len(rows),
+                "query": query
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-def get_transaction_stats(month: int = None, year: int = None):
-    """Returns aggregated transaction stats (Total Buy/Sell) for a specific month and year."""
+def get_market_data(symbol: str):
+    """
+    Fetches live market data for a given symbol using yfinance.
+    Falls back to mock data if the network is restricted.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        # Attempt to fetch fast info
+        info = ticker.fast_info
+        price = info.last_price
+        
+        if price is None or price == 0:
+            raise ValueError("Price not found")
+
+        return {
+            "symbol": symbol,
+            "price": price,
+            "currency": "INR" if ".NS" in symbol or ".BO" in symbol else "USD",
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "source": f"real-time-data from yfinance",
+            "status": "success"
+        }
+    except Exception as e:
+        # Fallback to mock data
+        mock_data = get_market_data_mock(symbol)
+        return mock_data
+
+def get_portfolio_analysis():
+    """
+    Analyzes the user's holdings and transactions to provide a summary.
+    """
     with Session(engine) as session:
-        statement = select(Transaction)
-        if year:
-            statement = statement.where(func.strftime('%Y', Transaction.execution_time) == str(year))
-        if month:
-            # Pad month with leading zero if needed
-            month_str = f"{month:02d}"
-            statement = statement.where(func.strftime('%m', Transaction.execution_time) == month_str)
+        holdings = session.exec(select(Holding)).all()
+        transactions = session.exec(select(Transaction)).all()
         
-        results = session.exec(statement).all()
+        holdings_list = [
+            {
+                "symbol": h.symbol,
+                "name": h.stock_name,
+                "quantity": h.quantity,
+                "avg_cost": h.avg_price,
+                "total_invested": h.total_invested
+            } for h in holdings
+        ]
         
-        buys = sum(t.price for t in results if t.type.upper() == "BUY")
-        sells = sum(t.price for t in results if t.type.upper() == "SELL")
-        count = len(results)
+        # Simple aggregated stats
+        total_invested = sum(h.total_invested for h in holdings)
         
         return {
-            "period": f"{month if month else 'All'}/{year if year else 'All'}",
-            "total_buy_value_INR": buys,
-            "total_sell_value_INR": sells,
-            "transaction_count": count,
-            "transactions": [{"date": t.execution_time.strftime("%Y-%m-%d"), "name": t.stock_name, "type": t.type, "qty": t.quantity, "total_transaction_value": t.price} for t in results]
+            "holdings": holdings_list,
+            "total_invested_value": total_invested,
+            "transaction_count": len(transactions),
+            "source": "internal-db"
         }
 
-# --- Tool Definitions for Groq ---
+def place_order_tool(symbol: str, tx_type: str, quantity: int, price: float, exchange: str = "NSE"):
+    """
+    Places a manual transaction order in the database and updates holdings.
+    """
+    with Session(engine) as session:
+        try:
+            print(f"Executing manual transaction for {symbol}...")
+            transaction = add_manual_transaction(
+                session=session,
+                symbol=symbol.upper(),
+                tx_type=tx_type.upper(),
+                quantity=quantity,
+                price=price,
+                exchange=exchange.upper()
+            )
+            
+            # Explicitly verify the transaction was saved
+            verify_tx = session.exec(select(Transaction).where(Transaction.order_id == transaction.order_id)).first()
+            if not verify_tx:
+                raise Exception("Transaction failed to persist in database.")
+            
+            return {
+                "status": "success",
+                "message": f"Successfully placed {tx_type} order for {quantity} shares of {symbol} at INR {price}. Portfolio updated.",
+                "order_id": transaction.order_id,
+                "action_required": "Please refresh the dashboard to see changes."
+            }
+        except Exception as e:
+            print(f"Error in place_order_tool: {e}")
+            return {"status": "error", "message": f"Database update failed: {str(e)}"}
+
+def delete_transaction_tool(order_id: str = None, symbol: str = None):
+    """
+    Deletes transactions by order ID or all transactions for a specific symbol.
+    At least one parameter must be provided.
+    """
+    with Session(engine) as session:
+        try:
+            if order_id:
+                transaction = session.exec(select(Transaction).where(Transaction.order_id == order_id)).first()
+                if not transaction:
+                    return {"status": "error", "message": f"Transaction with order ID {order_id} not found."}
+                session.delete(transaction)
+                msg = f"Transaction {order_id} deleted."
+            elif symbol:
+                transactions = session.exec(select(Transaction).where(Transaction.symbol == symbol.upper())).all()
+                if not transactions:
+                    return {"status": "error", "message": f"No transactions found for symbol {symbol}."}
+                for tx in transactions:
+                    session.delete(tx)
+                msg = f"All {len(transactions)} transactions for {symbol} deleted."
+            else:
+                return {"status": "error", "message": "Either order_id or symbol must be provided."}
+            
+            session.commit()
+            update_holdings(session)
+            
+            return {
+                "status": "success",
+                "message": f"{msg} Holdings have been recalculated and synced.",
+                "action_required": "Refresh your dashboard."
+            }
+        except Exception as e:
+            return {"status": "error", "message": f"Deletion failed: {str(e)}"}
+
+def generate_chart_data(chart_type: str, data_points: list):
+    """
+    Formats data for chart generation on the frontend.
+    data_points should be a list of objects with label and value.
+    """
+    return {
+        "chart_type": chart_type,
+        "data": data_points,
+        "message": "Chart data generated successfully. Please render this visually."
+    }
+
+# --- Tool Definitions ---
 
 tools = [
     {
         "type": "function",
         "function": {
-            "name": "get_holdings_summary",
-            "description": "Get a summary of current stock holdings, including quantity and total value.",
-            "parameters": {"type": "object", "properties": {}},
-        },
+            "name": "execute_sql_query",
+            "description": "Execute a read-only SQL SELECT query to answer complex data questions about transactions and holdings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The SQL SELECT statement to execute."}
+                },
+                "required": ["query"]
+            }
+        }
     },
     {
         "type": "function",
         "function": {
-            "name": "get_transaction_stats",
-            "description": "Get transaction statistics and a list of transactions for a specific month and year.",
+            "name": "get_market_data",
+            "description": "Get live market price and details for a stock symbol (e.g., RELIANCE.NS, AAPL).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "month": {"type": "integer", "description": "The month (1-12)"},
-                    "year": {"type": "integer", "description": "The year (e.g., 2024)"},
+                    "symbol": {"type": "string", "description": "The stock ticker symbol."}
                 },
-                "required": ["year"],
-            },
-        },
+                "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_portfolio_analysis",
+            "description": "Get a comprehensive analysis of the user's current holdings and transactions.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "place_order_tool",
+            "description": "Place a buy or sell order for a stock. This will update the user's portfolio.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The stock ticker symbol."},
+                    "tx_type": {"type": "string", "enum": ["BUY", "SELL"], "description": "The type of transaction."},
+                    "quantity": {"type": "integer", "description": "The number of shares."},
+                    "price": {"type": "number", "description": "The price per share or total value depending on context."},
+                    "exchange": {"type": "string", "default": "NSE", "description": "The stock exchange."}
+                },
+                "required": ["symbol", "tx_type", "quantity", "price"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_transaction_tool",
+            "description": "Delete a transaction by its order ID OR delete all transactions for a specific symbol. This will automatically update the portfolio holdings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_id": {"type": "string", "description": "The unique exchange order ID to delete (for single deletion)."},
+                    "symbol": {"type": "string", "description": "The stock ticker symbol to delete all transactions for (for bulk deletion)."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_chart_data",
+            "description": "Generate data for visual charts (bar, line, pie).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chart_type": {"type": "string", "enum": ["bar", "line", "pie"]},
+                    "data_points": {
+                        "type": "array", 
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "value": {"type": "number"}
+                            }
+                        }
+                    }
+                },
+                "required": ["chart_type", "data_points"]
+            }
+        }
     }
 ]
 
 def get_ai_response(history: list):
     """
-    history is a list of dicts: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    Supervisor Agent that orchestrates multi-agent tasks via specialized tools.
     """
+    prompt_context = (
+        "DATABASE SCHEMA:\n"
+        "- Table `transaction`: columns [id, stock_name, symbol, isin, type (BUY/SELL), quantity, price (Total Value), exchange, order_id, execution_time (YYYY-MM-DD HH:MM:SS), geography, category, status]. IMPORTANT: Always wrap 'transaction' in double quotes like \"transaction\" in SQL queries as it is a reserved word.\n"
+        "- Table `holding`: columns [symbol (PK), stock_name, isin, quantity, avg_price, total_invested, geography, category, last_transaction_date]\n\n"
+        "SPECIALIZED AGENTS:\n"
+        "1. Data Analyst (SQL Agent): Use `execute_sql_query` for complex filtering, date-based queries (e.g., 'buyings for Jan 2026'), or aggregations.\n"
+        "2. Live Market Data Agent: Use `get_market_data` for price queries.\n"
+        "3. Transaction & Holdings Agent: Use `get_portfolio_analysis` for high-level summary.\n"
+        "4. Order Placing Agent: Use `place_order_tool` for NEW transactions. This persist to DB.\n"
+        "5. Deletion Agent: Use `delete_transaction_tool` to remove specific transactions by order ID. This automatically syncs holdings.\n"
+        "6. Chart Agent: Use `generate_chart_data` for visuals.\n\n"
+        "STRICT RULES:\n"
+        "- For date queries like 'Jan 2026', use execution_time BETWEEN '2026-01-01' AND '2026-01-31' in SQL.\n"
+        "- If a tool indicates 'stale-data only', inform the user it's mock data.\n"
+        "- If an order is placed or deleted, inform the user clearly that the DB was updated and suggest a refresh.\n"
+        "- ALWAYS use 'INR' or '₹' for Indian stocks (.NS or .BO). Prefer 'INR' in text for compatibility.\n"
+        "- ALWAYS end with a follow-up question."
+    )
+    
     system_prompt = {
         "role": "system",
-        "content": (
-            "You are a highly precise Portfolio Assistant. STRICT RULES:\n"
-            "1. CURRENCY: Use '₹' (INR) for all monetary values. NEVER use '$'. All valuations are in INR.\n"
-            "2. DATA DEFINITION: In transaction tools, `total_transaction_value` is the SUM paid for the entire quantity. It is NOT the unit price.\n"
-            "3. CALCULATION RULE: To find the unit price, DIVIDE `total_transaction_value` by `quantity`. NEVER multiply `total_transaction_value` by `quantity` to find a total; it is already the total.\n"
-            "4. CONTEXT: If pronouns like 'that/it/the purchase' are used, refer to the entity in the IMMEDIATE PREVIOUS turn.\n"
-            "5. NO HALLUCINATION: If data is missing or ambiguous, state that clearly. Do not invent numbers.\n"
-            "6. FOLLOW-UP STYLE: ALWAYS end your response with a highly relevant follow-up question formatted as: 'Do you want to know, [Related Query]?'"
-        )
+        "content": f"You are the Portfolio Intelligence Orchestrator. {prompt_context}"
     }
     
-    # Start with system prompt and history
     messages = [system_prompt] + history
 
     try:
-        # First call to see if tools are needed
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
             tools=tools,
-            tool_choice="auto",
-            max_tokens=4096,
+            tool_choice="auto"
         )
         
         response_message = response.choices[0].message
@@ -113,26 +315,42 @@ def get_ai_response(history: list):
                 function_name = tool_call.function.name
                 function_args = json.loads(tool_call.function.arguments)
                 
-                if function_name == "get_holdings_summary":
-                    function_response = get_holdings_summary()
-                elif function_name == "get_transaction_stats":
-                    function_response = get_transaction_stats(
-                        month=function_args.get("month"),
-                        year=function_args.get("year")
+                print(f"Calling tool: {function_name} with args: {function_args}")
+                
+                if function_name == "execute_sql_query":
+                    function_response = execute_sql_query(function_args.get("query"))
+                elif function_name == "get_market_data":
+                    function_response = get_market_data(function_args.get("symbol"))
+                elif function_name == "get_portfolio_analysis":
+                    function_response = get_portfolio_analysis()
+                elif function_name == "place_order_tool":
+                    function_response = place_order_tool(
+                        symbol=function_args.get("symbol"),
+                        tx_type=function_args.get("tx_type"),
+                        quantity=function_args.get("quantity"),
+                        price=function_args.get("price"),
+                        exchange=function_args.get("exchange", "NSE")
+                    )
+                elif function_name == "delete_transaction_tool":
+                    function_response = delete_transaction_tool(
+                        order_id=function_args.get("order_id"),
+                        symbol=function_args.get("symbol")
+                    )
+                elif function_name == "generate_chart_data":
+                    function_response = generate_chart_data(
+                        chart_type=function_args.get("chart_type"),
+                        data_points=function_args.get("data_points")
                     )
                 else:
-                    function_response = "Error: Tool not found"
+                    function_response = {"error": "Tool not found"}
 
-                messages.append(
-                    {
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": json.dumps(function_response),
-                    }
-                )
+                messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": json.dumps(function_response),
+                })
             
-            # Second call to get final answer
             final_response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=messages,

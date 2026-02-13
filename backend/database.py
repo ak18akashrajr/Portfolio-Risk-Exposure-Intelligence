@@ -1,7 +1,9 @@
-from sqlmodel import create_engine, SQLModel, Session
 import os
+from sqlmodel import create_engine, SQLModel, Session
 
-DATABASE_URL = "sqlite:///./portfolio_v2.db"
+BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+DATABASE_PATH = os.path.join(BASE_DIR, "portfolio_v2.db")
+DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 

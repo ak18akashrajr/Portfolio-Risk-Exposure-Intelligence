@@ -87,6 +87,10 @@ def update_holdings(session: Session):
                 holdings_dict[tx.symbol]['current_quantity'] = 0
 
     # Overwrite holdings in DB
+    existing_symbols = {h.symbol for h in session.exec(select(Holding)).all()}
+    calculated_symbols = set(holdings_dict.keys())
+    
+    # 1. Update or Add holdings
     for symbol, data in holdings_dict.items():
         if data['current_quantity'] > 0:
             # Weighted Average Buy Price = Total Buy Value / Total Buy Quantity
@@ -114,6 +118,18 @@ def update_holdings(session: Session):
                     last_transaction_date=data['last_transaction_date']
                 )
             session.add(holding)
+        else:
+            # Quantity is zero, ensure it's removed if it exists
+            holding = session.get(Holding, symbol)
+            if holding:
+                session.delete(holding)
+
+    # 2. Cleanup: Delete any symbols that are in DB but no longer in any transaction
+    symbols_to_delete = existing_symbols - calculated_symbols
+    for sym in symbols_to_delete:
+        holding = session.get(Holding, sym)
+        if holding:
+            session.delete(holding)
     
     session.commit()
 
@@ -141,7 +157,7 @@ def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity
         price=price,
         exchange=exchange,
         order_id=order_id,
-        execution_time=datetime.now(),
+        execution_time=datetime.now().replace(microsecond=0),
         geography=geography or "India",
         category=category or "Equity(Stocks)",
         status="Executed"

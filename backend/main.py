@@ -81,6 +81,17 @@ async def chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in chat: {str(e)}")
 
+@app.delete("/transactions/{order_id}")
+def delete_transaction(order_id: str, session: Session = Depends(get_session)):
+    transaction = session.exec(select(Transaction).where(Transaction.order_id == order_id)).first()
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    session.delete(transaction)
+    session.commit()
+    update_holdings(session)
+    return {"message": "Transaction deleted and holdings synced successfully"}
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}

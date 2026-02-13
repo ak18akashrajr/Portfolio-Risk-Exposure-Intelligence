@@ -1,4 +1,7 @@
 [to-do]
+
+delete transaction Check
+also fix model response
 implement agentic model(
     live market data agent
     transaction cum holdings agent, 

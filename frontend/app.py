@@ -329,7 +329,7 @@ with tabs[0]: # Dashboard
                 if response_tx.status_code == 200:
                     df_tx = pd.DataFrame(response_tx.json())
                     if not df_tx.empty:
-                        df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'])
+                        df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'], format='ISO8601')
                         df_tx = df_tx.sort_values('execution_time')
                         
                         df_tx['investment_change'] = df_tx.apply(lambda x: x['price'] if x['type'].upper() == 'BUY' else -x['price'], axis=1)
@@ -367,7 +367,7 @@ with tabs[1]: # Transactions
             transactions = response.json()
             if transactions:
                 df_tx = pd.DataFrame(transactions)
-                df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'])
+                df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'], format='ISO8601')
                 
                 st.dataframe(
                     df_tx[['execution_time', 'stock_name', 'symbol', 'type', 'quantity', 'price', 'category', 'geography', 'exchange', 'order_id']].sort_values(by='execution_time', ascending=False),
@@ -405,32 +405,50 @@ with tabs[4]: # AI Assistant
                 - *'Compare my November 2024 and 2025 transactions.'*
                 """)
 
-        # Display chat messages from history
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    # Display chat messages from history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            content = message["content"]
+            
+            # Simple check if content is JSON (for chart data)
+            if content.startswith("{") and "chart_type" in content:
+                try:
+                    data = json.loads(content)
+                    st.write(data["message"])
+                    df_chart = pd.DataFrame(data["data"])
+                    if data["chart_type"] == "bar":
+                        fig = px.bar(df_chart, x='label', y='value', color_discrete_sequence=['#38bdf8'])
+                    elif data["chart_type"] == "line":
+                        fig = px.line(df_chart, x='label', y='value', color_discrete_sequence=['#38bdf8'])
+                    elif data["chart_type"] == "pie":
+                        fig = px.pie(df_chart, values='value', names='label', color_discrete_sequence=px.colors.sequential.Blues_r)
+                    
+                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+                    st.plotly_chart(fig, use_container_width=True)
+                except:
+                    st.markdown(content)
+            else:
+                st.markdown(content)
 
-    # Chat input is placed outside the container to keep it pinned via Streamlit's native mechanism
+    # Chat input
     if prompt := st.chat_input("Ask a question about your portfolio..."):
-        # Display user message in chat message container
         st.chat_message("user").markdown(prompt)
-        # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         try:
             with st.spinner("AI is thinking..."):
-                # Send the full history including the new user message
                 response = requests.post(
                     f"{BACKEND_URL}/chat", 
                     json={"history": st.session_state.messages}
                 )
                 if response.status_code == 200:
                     answer = response.json().get("response")
-                    # Display assistant response in chat message container
-                    with st.chat_message("assistant"):
-                        st.markdown(answer)
-                    # Add assistant response to chat history
+                    
+                    # Add assistant response to history
                     st.session_state.messages.append({"role": "assistant", "content": answer})
+                    
+                    # Rerun to display new message with potential chart logic
+                    st.rerun()
                 else:
                     st.error(f"❌ Error: {response.json().get('detail', 'Failed to get response')}")
         except Exception as e:
