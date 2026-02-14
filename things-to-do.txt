@@ -1,5 +1,8 @@
 [to-do]
-
+add manual data adding feature (partially done) [test w/ new ticker]
+fetch-real-time--price viz yfinance
+fetch rolling returns
+add gsr ratio
 delete transaction Check via LLM. 
 also fix model response
 implement agentic model(
@@ -10,10 +13,7 @@ implement agentic model(
     order(transaction) placing agent
     chart agents
     )
-add manual data adding feature (partially done) [test w/ new ticker]
-fetch-real-time--price viz yfinance
-fetch rolling returns
-add gsr ratio
+
 
 
 [done]
