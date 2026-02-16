@@ -12,3 +12,6 @@ plotly
 pip-system-certs
 groq
 python-dotenv
+crewai
+crewai-tools
+litellm

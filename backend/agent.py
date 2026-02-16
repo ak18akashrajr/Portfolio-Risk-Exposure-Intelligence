@@ -9,13 +9,21 @@ from .models import Transaction, Holding
 from .ingestion import add_manual_transaction, update_holdings
 from .utils import get_market_data_mock
 from datetime import datetime
+from crewai import Agent, Task, Crew, Process, LLM
+from crewai.tools import tool
 
 load_dotenv()
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# Configure LLM for CrewAI using the native LLM class
+llm = LLM(
+    model="groq/llama-3.3-70b-versatile", # Using 70b-versatile for higher limits
+    api_key=os.environ.get("GROQ_API_KEY"),
+    temperature=0.1
+)
 
 # --- Specialized Tool Functions ---
 
+@tool("execute_sql_query")
 def execute_sql_query(query: str):
     """
     Executes a read-only SQL query on the portfolio database.
@@ -28,7 +36,6 @@ def execute_sql_query(query: str):
     with Session(engine) as session:
         try:
             result = session.exec(text(query))
-            # Convert results to list of dicts
             rows = [dict(row._mapping) for row in result]
             return {
                 "status": "success",
@@ -39,14 +46,14 @@ def execute_sql_query(query: str):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+@tool("get_market_data")
 def get_market_data(symbol: str):
     """
-    Fetches live market data for a given symbol using yfinance.
+    Fetches live market price and details for a stock symbol (e.g., RELIANCE.NS, AAPL).
     Falls back to mock data if the network is restricted.
     """
     try:
         ticker = yf.Ticker(symbol)
-        # Attempt to fetch fast info
         info = ticker.fast_info
         price = info.last_price
         
@@ -58,14 +65,15 @@ def get_market_data(symbol: str):
             "price": price,
             "currency": "INR" if ".NS" in symbol or ".BO" in symbol else "USD",
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": f"real-time-data from yfinance",
+            "source": "Live Market Data",
             "status": "success"
         }
     except Exception as e:
-        # Fallback to mock data
         mock_data = get_market_data_mock(symbol)
+        mock_data["source"] = "mock_data"
         return mock_data
 
+@tool("get_portfolio_analysis")
 def get_portfolio_analysis():
     """
     Analyzes the user's holdings and transactions to provide a summary.
@@ -84,7 +92,6 @@ def get_portfolio_analysis():
             } for h in holdings
         ]
         
-        # Simple aggregated stats
         total_invested = sum(h.total_invested for h in holdings)
         
         return {
@@ -94,13 +101,13 @@ def get_portfolio_analysis():
             "source": "internal-db"
         }
 
+@tool("place_order_tool")
 def place_order_tool(symbol: str, tx_type: str, quantity: int, price: float, exchange: str = "NSE"):
     """
     Places a manual transaction order in the database and updates holdings.
     """
     with Session(engine) as session:
         try:
-            print(f"Executing manual transaction for {symbol}...")
             transaction = add_manual_transaction(
                 session=session,
                 symbol=symbol.upper(),
@@ -109,56 +116,42 @@ def place_order_tool(symbol: str, tx_type: str, quantity: int, price: float, exc
                 price=price,
                 exchange=exchange.upper()
             )
-            
-            # Explicitly verify the transaction was saved
-            verify_tx = session.exec(select(Transaction).where(Transaction.order_id == transaction.order_id)).first()
-            if not verify_tx:
-                raise Exception("Transaction failed to persist in database.")
-            
             return {
                 "status": "success",
-                "message": f"Successfully placed {tx_type} order for {quantity} shares of {symbol} at INR {price}. Portfolio updated.",
-                "order_id": transaction.order_id,
-                "action_required": "Please refresh the dashboard to see changes."
+                "message": f"Successfully placed {tx_type} order for {quantity} shares of {symbol} at INR {price}.",
+                "order_id": transaction.order_id
             }
         except Exception as e:
-            print(f"Error in place_order_tool: {e}")
             return {"status": "error", "message": f"Database update failed: {str(e)}"}
 
+@tool("delete_transaction_tool")
 def delete_transaction_tool(order_id: str = None, symbol: str = None):
     """
     Deletes transactions by order ID or all transactions for a specific symbol.
-    At least one parameter must be provided.
     """
     with Session(engine) as session:
         try:
             if order_id:
                 transaction = session.exec(select(Transaction).where(Transaction.order_id == order_id)).first()
                 if not transaction:
-                    return {"status": "error", "message": f"Transaction with order ID {order_id} not found."}
+                    return {"status": "error", "message": "Transaction not found."}
                 session.delete(transaction)
                 msg = f"Transaction {order_id} deleted."
             elif symbol:
                 transactions = session.exec(select(Transaction).where(Transaction.symbol == symbol.upper())).all()
                 if not transactions:
-                    return {"status": "error", "message": f"No transactions found for symbol {symbol}."}
+                    return {"status": "error", "message": "No transactions found."}
                 for tx in transactions:
                     session.delete(tx)
-                msg = f"All {len(transactions)} transactions for {symbol} deleted."
-            else:
-                return {"status": "error", "message": "Either order_id or symbol must be provided."}
+                msg = f"All transactions for {symbol} deleted."
             
             session.commit()
             update_holdings(session)
-            
-            return {
-                "status": "success",
-                "message": f"{msg} Holdings have been recalculated and synced.",
-                "action_required": "Refresh your dashboard."
-            }
+            return {"status": "success", "message": msg}
         except Exception as e:
             return {"status": "error", "message": f"Deletion failed: {str(e)}"}
 
+@tool("generate_chart_data")
 def generate_chart_data(chart_type: str, data_points: list):
     """
     Formats data for chart generation on the frontend.
@@ -167,197 +160,127 @@ def generate_chart_data(chart_type: str, data_points: list):
     return {
         "chart_type": chart_type,
         "data": data_points,
-        "message": "Chart data generated successfully. Please render this visually."
+        "message": "Chart data generated successfully."
     }
 
-# --- Tool Definitions ---
+# --- Agent Definitions ---
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "execute_sql_query",
-            "description": "Execute a read-only SQL SELECT query to answer complex data questions about transactions and holdings.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "The SQL SELECT statement to execute."}
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_market_data",
-            "description": "Get live market price and details for a stock symbol (e.g., RELIANCE.NS, AAPL).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": "The stock ticker symbol."}
-                },
-                "required": ["symbol"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_portfolio_analysis",
-            "description": "Get a comprehensive analysis of the user's current holdings and transactions.",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "place_order_tool",
-            "description": "Place a buy or sell order for a stock. This will update the user's portfolio.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": "The stock ticker symbol."},
-                    "tx_type": {"type": "string", "enum": ["BUY", "SELL"], "description": "The type of transaction."},
-                    "quantity": {"type": "integer", "description": "The number of shares."},
-                    "price": {"type": "number", "description": "The price per share or total value depending on context."},
-                    "exchange": {"type": "string", "default": "NSE", "description": "The stock exchange."}
-                },
-                "required": ["symbol", "tx_type", "quantity", "price"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_transaction_tool",
-            "description": "Delete a transaction by its order ID OR delete all transactions for a specific symbol. This will automatically update the portfolio holdings.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {"type": "string", "description": "The unique exchange order ID to delete (for single deletion)."},
-                    "symbol": {"type": "string", "description": "The stock ticker symbol to delete all transactions for (for bulk deletion)."}
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_chart_data",
-            "description": "Generate data for visual charts (bar, line, pie).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "chart_type": {"type": "string", "enum": ["bar", "line", "pie"]},
-                    "data_points": {
-                        "type": "array", 
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {"type": "string"},
-                                "value": {"type": "number"}
-                            }
-                        }
-                    }
-                },
-                "required": ["chart_type", "data_points"]
-            }
-        }
-    }
-]
+market_analyst = Agent(
+    role='Live Market Data Agent',
+    goal='Provide up-to-date market prices and financial information.',
+    backstory="""You fetch accurate market data. 
+    IMPORTANT: If you use the output of a tool that mentions 'mock_data', you MUST explicitly write the phrase 'mock_data' in your final answer. 
+    If the tool output indicates 'Live Market Data', you MUST explicitly write the phrase 'Live Market Data' in your final answer. 
+    This is a strict requirement from the user.""",
+    tools=[get_market_data],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+portfolio_specialist = Agent(
+    role='Transaction cum Holdings Agent',
+    goal='Manage and summarize user holdings and transactions.',
+    backstory="""You summarize portfolio data clearly. 
+    CRITICAL: You MUST use the 'get_portfolio_analysis' tool to fetch the actual data. 
+    NEVER invent or hallucinate holdings. If the tool returns no data, state that the portfolio is empty.
+    Always mention that the data is from the internal database.""",
+    tools=[get_portfolio_analysis],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+data_ingester = Agent(
+    role='Data Agent',
+    goal='Ensure data integrity and handle general data requests.',
+    backstory="""You ensure data follows rules and schemas.""",
+    tools=[get_portfolio_analysis],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+analytics_agent = Agent(
+    role='Analytics Agent',
+    goal='Perform complex analysis and risk assessment.',
+    backstory="""You provide deep insights from portfolio data.
+    CRITICAL: You MUST use the 'get_portfolio_analysis' or 'execute_sql_query' tools to fetch actual data.
+    NEVER invent or hallucinate holdings, stock names, or values. check tables 'transaction' and 'holding' in database.
+    If the user asks for analysis of their holdings, you must first GET the holdings using the tool. DO NOT assume what they are.
+    IMPORTANT: You MUST ensure that the final response to the user includes the source of any market data used. 
+    If a peer agent used 'mock_data', include that keyword. If they used 'Live Market Data', include that keyword.""",
+    tools=[get_portfolio_analysis, execute_sql_query],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+trading_agent = Agent(
+    role='Order Placing Agent',
+    goal='Execute buy/sell orders and update records.',
+    backstory="""You handle order placements and deletions precisely.""",
+    tools=[place_order_tool, delete_transaction_tool],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+visual_agent = Agent(
+    role='Chart Agent',
+    goal='Format data for visual charts.',
+    backstory="""You transform numbers into chart JSON.""",
+    tools=[generate_chart_data],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+sql_agent = Agent(
+    role='SQL Agent',
+    goal='Execute SQL queries for complex data retrieval.',
+    backstory="""You are an SQL expert. 
+    CRITICAL: You MUST check the database schema before answering. 
+    The visible tables are 'transaction', 'holding' and others. 
+    NEVER halluncinate table names. Always execute valid SQL.""",
+    tools=[execute_sql_query],
+    llm=llm,
+    verbose=True,
+    allow_delegation=False
+)
+
+# --- Task Execution Logic ---
 
 def get_ai_response(history: list):
-    """
-    Supervisor Agent that orchestrates multi-agent tasks via specialized tools.
-    """
-    prompt_context = (
-        "DATABASE SCHEMA:\n"
-        "- Table `transaction`: columns [id, stock_name, symbol, isin, type (BUY/SELL), quantity, price (Total Value), exchange, order_id, execution_time (YYYY-MM-DD HH:MM:SS), geography, category, status]. IMPORTANT: Always wrap 'transaction' in double quotes like \"transaction\" in SQL queries as it is a reserved word.\n"
-        "- Table `holding`: columns [symbol (PK), stock_name, isin, quantity, avg_price, total_invested, geography, category, last_transaction_date]\n\n"
-        "SPECIALIZED AGENTS:\n"
-        "1. Data Analyst (SQL Agent): Use `execute_sql_query` for complex filtering, date-based queries (e.g., 'buyings for Jan 2026'), or aggregations.\n"
-        "2. Live Market Data Agent: Use `get_market_data` for price queries.\n"
-        "3. Transaction & Holdings Agent: Use `get_portfolio_analysis` for high-level summary.\n"
-        "4. Order Placing Agent: Use `place_order_tool` for NEW transactions. This persist to DB.\n"
-        "5. Deletion Agent: Use `delete_transaction_tool` to remove specific transactions by order ID. This automatically syncs holdings.\n"
-        "6. Chart Agent: Use `generate_chart_data` for visuals.\n\n"
-        "STRICT RULES:\n"
-        "- For date queries like 'Jan 2026', use execution_time BETWEEN '2026-01-01' AND '2026-01-31' in SQL.\n"
-        "- If a tool indicates 'stale-data only', inform the user it's mock data.\n"
-        "- If an order is placed or deleted, inform the user clearly that the DB was updated and suggest a refresh.\n"
-        "- ALWAYS use 'INR' or '₹' for Indian stocks (.NS or .BO). Prefer 'INR' in text for compatibility.\n"
-        "- ALWAYS end with a follow-up question."
+    user_query = history[-1]['content'] if history else ""
+    
+    # In a hierarchical process, we do NOT assign a specific agent to the task.
+    # The manager LLM decides which agent to delegate to.
+    analysis_task = Task(
+        description=f"""Process the user query: '{user_query}' while considering history context.
+        
+        CRITICAL RULES:
+        1. If the user asks about holdings, portfolio, or investments, you MUST use the 'get_portfolio_analysis' tool. 
+           - Do NOT provide a generic example or hallucinated data.
+           - If the tool returns no holdings, state that the portfolio is empty.
+        2. If you fetch market prices, you MUST explicitly state whether the data is from 'Live Market Data' or if it is 'mock_data'.
+           - Do not omit this information. The user needs to know the data source.
+        """,
+        expected_output="A helpful response based ONLY on the actual database usage and tool outputs. It must EXPLICITLY mention the data source (Live Market Data or mock_data) if market prices were involved, and end with a follow-up question.",
+        # agent=analytics_agent  <-- Removed to allow hierarchical delegation
     )
-    
-    system_prompt = {
-        "role": "system",
-        "content": f"You are the Portfolio Intelligence Orchestrator. {prompt_context}"
-    }
-    
-    messages = [system_prompt] + history
+
+    crew = Crew(
+        agents=[market_analyst, portfolio_specialist, data_ingester, analytics_agent, trading_agent, visual_agent, sql_agent],
+        tasks=[analysis_task],
+        process=Process.hierarchical, # Use hierarchical process for dynamic routing
+        manager_llm=llm, # Use the same LLM for the manager
+        verbose=True
+    )
 
     try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
-        )
-        
-        response_message = response.choices[0].message
-        tool_calls = response_message.tool_calls
-
-        if tool_calls:
-            messages.append(response_message)
-            
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                
-                print(f"Calling tool: {function_name} with args: {function_args}")
-                
-                if function_name == "execute_sql_query":
-                    function_response = execute_sql_query(function_args.get("query"))
-                elif function_name == "get_market_data":
-                    function_response = get_market_data(function_args.get("symbol"))
-                elif function_name == "get_portfolio_analysis":
-                    function_response = get_portfolio_analysis()
-                elif function_name == "place_order_tool":
-                    function_response = place_order_tool(
-                        symbol=function_args.get("symbol"),
-                        tx_type=function_args.get("tx_type"),
-                        quantity=function_args.get("quantity"),
-                        price=function_args.get("price"),
-                        exchange=function_args.get("exchange", "NSE")
-                    )
-                elif function_name == "delete_transaction_tool":
-                    function_response = delete_transaction_tool(
-                        order_id=function_args.get("order_id"),
-                        symbol=function_args.get("symbol")
-                    )
-                elif function_name == "generate_chart_data":
-                    function_response = generate_chart_data(
-                        chart_type=function_args.get("chart_type"),
-                        data_points=function_args.get("data_points")
-                    )
-                else:
-                    function_response = {"error": "Tool not found"}
-
-                messages.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": function_name,
-                    "content": json.dumps(function_response),
-                })
-            
-            final_response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=messages,
-            )
-            return final_response.choices[0].message.content
-        
-        return response_message.content
-
+        result = crew.kickoff()
+        return str(result)
     except Exception as e:
-        return f"Error communicating with AI: {str(e)}"
+        print(f"CrewAI Error: {e}")
+        return f"Error: {str(e)}"

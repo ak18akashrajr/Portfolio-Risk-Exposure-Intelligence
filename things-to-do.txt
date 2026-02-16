@@ -13,6 +13,17 @@ implement agentic model(
     order(transaction) placing agent
     chart agents
     )
+Implemented 7 specialized agents in 
+backend/agent.py
+:
+
+Market Analyst: Handles real-time price queries with mock data fallback.
+Portfolio Specialist: Summarizes holdings and investment stats.
+Data Ingester: Ensures data consistency.
+Analytics Agent: Performs risk and quantitative analysis.
+Trading Agent: Executes orders and deletions.
+Visual Agent: Formats data for frontend charts.
+SQL Agent: Executes complex granular database queries.
 
 
 
