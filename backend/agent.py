@@ -1,7 +1,6 @@
 import os
 import json
 import yfinance as yf
-from groq import Groq
 from dotenv import load_dotenv
 from sqlmodel import Session, select, func, text
 from .database import engine
@@ -14,10 +13,23 @@ from crewai.tools import tool
 
 load_dotenv()
 
-# Configure LLM for CrewAI using the native LLM class
-llm = LLM(
-    model="groq/llama-3.3-70b-versatile", # Using 70b-versatile for higher limits
-    api_key=os.environ.get("GROQ_API_KEY"),
+# --- Telemetry & Optimization ---
+# Disable CrewAI telemetry to prevent connection timeouts in restricted environments
+os.environ["OTEL_SDK_DISABLED"] = "true"
+
+# --- LLM Configurations ---
+# 1. Fast Model (Routing, Simple Tasks, Formatting)
+llm_fast = LLM(
+    model="gemini/gemini-flash-lite-latest",
+    api_key=os.environ.get("GOOGLE_API_KEY"),
+    temperature=0.1
+)
+
+# 2. Reasoning Model (Complex Analysis, SQL Generation)
+# Using flash-lite here too to avoid the strict 429 quotas of the 'pro' model in this environment
+llm_reasoning = LLM(
+    model="gemini/gemini-flash-lite-latest", 
+    api_key=os.environ.get("GOOGLE_API_KEY"),
     temperature=0.1
 )
 
@@ -173,7 +185,7 @@ market_analyst = Agent(
     If the tool output indicates 'Live Market Data', you MUST explicitly write the phrase 'Live Market Data' in your final answer. 
     This is a strict requirement from the user.""",
     tools=[get_market_data],
-    llm=llm,
+    llm=llm_reasoning, 
     verbose=True,
     allow_delegation=False
 )
@@ -186,7 +198,7 @@ portfolio_specialist = Agent(
     NEVER invent or hallucinate holdings. If the tool returns no data, state that the portfolio is empty.
     Always mention that the data is from the internal database.""",
     tools=[get_portfolio_analysis],
-    llm=llm,
+    llm=llm_fast,
     verbose=True,
     allow_delegation=False
 )
@@ -196,22 +208,22 @@ data_ingester = Agent(
     goal='Ensure data integrity and handle general data requests.',
     backstory="""You ensure data follows rules and schemas.""",
     tools=[get_portfolio_analysis],
-    llm=llm,
+    llm=llm_fast,
     verbose=True,
     allow_delegation=False
 )
 
 analytics_agent = Agent(
-    role='Analytics Agent',
-    goal='Perform complex analysis and risk assessment.',
-    backstory="""You provide deep insights from portfolio data.
-    CRITICAL: You MUST use the 'get_portfolio_analysis' or 'execute_sql_query' tools to fetch actual data.
-    NEVER invent or hallucinate holdings, stock names, or values. check tables 'transaction' and 'holding' in database.
-    If the user asks for analysis of their holdings, you must first GET the holdings using the tool. DO NOT assume what they are.
-    IMPORTANT: You MUST ensure that the final response to the user includes the source of any market data used. 
-    If a peer agent used 'mock_data', include that keyword. If they used 'Live Market Data', include that keyword.""",
+    role='Expert Financial Analyst',
+    goal='Provide sophisticated risk assessment and investment insights.',
+    backstory="""You are a world-class financial quantitative analyst. 
+    You provide deep insights from portfolio data, including sector diversification, risk concentration, and potential market exposure.
+    CRITICAL: You MUST use the 'get_portfolio_analysis' or 'execute_sql_query' tools to fetch real data.
+    NEVER invent or hallucinate holdings. Check tables 'transaction' and 'holding' in database.
+    SUPER REQUIREMENT: Always attempt to provide a "Macro Insight" or "Risk Score" based on the holdings you find. 
+    If you see high concentration in one stock, warn the user. If the data is empty, suggest how to get started.""",
     tools=[get_portfolio_analysis, execute_sql_query],
-    llm=llm,
+    llm=llm_reasoning,
     verbose=True,
     allow_delegation=False
 )
@@ -221,7 +233,7 @@ trading_agent = Agent(
     goal='Execute buy/sell orders and update records.',
     backstory="""You handle order placements and deletions precisely.""",
     tools=[place_order_tool, delete_transaction_tool],
-    llm=llm,
+    llm=llm_fast,
     verbose=True,
     allow_delegation=False
 )
@@ -231,7 +243,7 @@ visual_agent = Agent(
     goal='Format data for visual charts.',
     backstory="""You transform numbers into chart JSON.""",
     tools=[generate_chart_data],
-    llm=llm,
+    llm=llm_fast,
     verbose=True,
     allow_delegation=False
 )
@@ -244,7 +256,7 @@ sql_agent = Agent(
     The visible tables are 'transaction', 'holding' and others. 
     NEVER halluncinate table names. Always execute valid SQL.""",
     tools=[execute_sql_query],
-    llm=llm,
+    llm=llm_reasoning,
     verbose=True,
     allow_delegation=False
 )
@@ -274,7 +286,7 @@ def get_ai_response(history: list):
         agents=[market_analyst, portfolio_specialist, data_ingester, analytics_agent, trading_agent, visual_agent, sql_agent],
         tasks=[analysis_task],
         process=Process.hierarchical, # Use hierarchical process for dynamic routing
-        manager_llm=llm, # Use the same LLM for the manager
+        manager_llm=llm_fast, # Use fast model for routing
         verbose=True
     )
 
