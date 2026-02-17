@@ -113,6 +113,76 @@ def get_portfolio_analysis():
             "source": "internal-db"
         }
 
+@tool("get_historical_holdings")
+def get_historical_holdings(date_str: str):
+    """
+    Reconstructs the portfolio holdings as they were on a specific date.
+    Input format: 'YYYY-MM-DD' (e.g., '2025-01-31').
+    """
+    try:
+        # Normalize date for search
+        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return {"status": "error", "message": "Invalid date format. Please use YYYY-MM-DD."}
+
+    with Session(engine) as session:
+        # Fetch all transactions up to the target date
+        transactions = session.exec(
+            select(Transaction).where(Transaction.execution_time <= target_date)
+        ).all()
+        
+        if not transactions:
+            return {"status": "success", "date": date_str, "holdings": [], "total_invested": 0, "message": "No transactions found on or before this date."}
+
+        # Aggregate holdings
+        historical_holdings = {}
+        for tx in transactions:
+            symbol = tx.symbol
+            if symbol not in historical_holdings:
+                historical_holdings[symbol] = {
+                    "symbol": symbol,
+                    "name": tx.stock_name,
+                    "quantity": 0,
+                    "total_cost": 0.0
+                }
+            
+            if tx.type.upper() == "BUY":
+                historical_holdings[symbol]["quantity"] += tx.quantity
+                historical_holdings[symbol]["total_cost"] += (tx.quantity * tx.price)
+            elif tx.type.upper() == "SELL":
+                historical_holdings[symbol]["quantity"] -= tx.quantity
+                # For historical cost, we'll keep it simple: reduce proportion. 
+                # (Actual avg cost calculation usually depends on FIFO/LIFO, 
+                # but simple aggregation is sufficient for basic historical comparison).
+                if historical_holdings[symbol]["quantity"] > 0:
+                    historical_holdings[symbol]["total_cost"] *= ( (historical_holdings[symbol]["quantity"]) / (historical_holdings[symbol]["quantity"] + tx.quantity) )
+                else:
+                    historical_holdings[symbol]["total_cost"] = 0
+
+        # Filter out zero holdings and format
+        result_list = []
+        total_value = 0
+        for symbol, data in historical_holdings.items():
+            if data["quantity"] > 0:
+                avg_price = data["total_cost"] / data["quantity"] if data["quantity"] > 0 else 0
+                result_list.append({
+                    "symbol": symbol,
+                    "name": data["name"],
+                    "quantity": data["quantity"],
+                    "avg_cost": round(avg_price, 2),
+                    "total_invested": round(data["total_cost"], 2)
+                })
+                total_value += data["total_cost"]
+
+        return {
+            "status": "success",
+            "date": date_str,
+            "holdings": result_list,
+            "total_invested_value": round(total_value, 2),
+            "transaction_count": len(transactions),
+            "source": "internal-db-history"
+        }
+
 @tool("place_order_tool")
 def place_order_tool(symbol: str, tx_type: str, quantity: int, price: float, exchange: str = "NSE"):
     """
@@ -218,11 +288,12 @@ analytics_agent = Agent(
     goal='Provide sophisticated risk assessment and investment insights.',
     backstory="""You are a world-class financial quantitative analyst. 
     You provide deep insights from portfolio data, including sector diversification, risk concentration, and potential market exposure.
-    CRITICAL: You MUST use the 'get_portfolio_analysis' or 'execute_sql_query' tools to fetch real data.
+    CRITICAL: You MUST use the 'get_portfolio_analysis' or 'execute_sql_query' tools to fetch real data for current state.
+    HISTORICAL ANALYSIS: If the user asks for a comparison across dates (e.g., "Jan 2025 vs Jan 2026"), you MUST use the 'get_historical_holdings' tool for EACH date to reconstruct the portfolio state at those times.
     NEVER invent or hallucinate holdings. Check tables 'transaction' and 'holding' in database.
     SUPER REQUIREMENT: Always attempt to provide a "Macro Insight" or "Risk Score" based on the holdings you find. 
     If you see high concentration in one stock, warn the user. If the data is empty, suggest how to get started.""",
-    tools=[get_portfolio_analysis, execute_sql_query],
+    tools=[get_portfolio_analysis, execute_sql_query, get_historical_holdings],
     llm=llm_reasoning,
     verbose=True,
     allow_delegation=False
@@ -275,7 +346,9 @@ def get_ai_response(history: list):
         1. If the user asks about holdings, portfolio, or investments, you MUST use the 'get_portfolio_analysis' tool. 
            - Do NOT provide a generic example or hallucinated data.
            - If the tool returns no holdings, state that the portfolio is empty.
-        2. If you fetch market prices, you MUST explicitly state whether the data is from 'Live Market Data' or if it is 'mock_data'.
+        2. COMPARISON/HISTORICAL: If the user asks to compare dates or asks for state at a specific past date, you MUST use 'get_historical_holdings' with the appropriate date strings. 
+           - Calculate differences in total value, top holdings, and diversification between the points.
+        3. If you fetch market prices, you MUST explicitly state whether the data is from 'Live Market Data' or if it is 'mock_data'.
            - Do not omit this information. The user needs to know the data source.
         """,
         expected_output="A helpful response based ONLY on the actual database usage and tool outputs. It must EXPLICITLY mention the data source (Live Market Data or mock_data) if market prices were involved, and end with a follow-up question.",
