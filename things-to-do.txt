@@ -13,6 +13,7 @@ also fix model response
 
 
 integrate MF holdings
+integrate liquid cash holdings
 add manual data adding feature (partially done) [test w/ new ticker]
 fetch-real-time--price viz yfinance
 fetch rolling returns
