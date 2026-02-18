@@ -9,6 +9,10 @@ implement agentic model(
     )
 compare point to point data timeline holdings
 also fix model response
+
+
+
+integrate MF holdings
 add manual data adding feature (partially done) [test w/ new ticker]
 fetch-real-time--price viz yfinance
 fetch rolling returns

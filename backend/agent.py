@@ -41,6 +41,13 @@ def execute_sql_query(query: str):
     Executes a read-only SQL query on the portfolio database.
     Useful for complex aggregations, filtering, and analysis.
     Only SELECT statements are allowed.
+    
+    TABLES AVAILABLE:
+    1. "transaction": columns [id, stock_name, symbol, isin, type (BUY/SELL), quantity, price, exchange, order_id, execution_time (ISO format), geography, category, status]
+    2. "holding": columns [symbol (PK), stock_name, isin, quantity, avg_price, total_invested, geography, category, last_transaction_date]
+    
+    IMPORTANT: The "transaction" table name is a reserved keyword in some SQL dialects, always quote it as `"transaction"` in your queries.
+    DATES: execution_time is stored as a string. Use strftime('%Y', execution_time) or strftime('%Y-%m', execution_time) for filtering.
     """
     if not query.strip().upper().startswith("SELECT"):
         return {"error": "Only SELECT queries are allowed for security reasons."}
@@ -322,10 +329,17 @@ visual_agent = Agent(
 sql_agent = Agent(
     role='SQL Agent',
     goal='Execute SQL queries for complex data retrieval.',
-    backstory="""You are an SQL expert. 
-    CRITICAL: You MUST check the database schema before answering. 
-    The visible tables are 'transaction', 'holding' and others. 
-    NEVER halluncinate table names. Always execute valid SQL.""",
+    backstory="""You are a world-class SQL expert specializing in SQLite.
+    CRITICAL: Before writing any query, you MUST refer to this schema:
+    1. Table "transaction":
+       - columns: [id, stock_name, symbol, isin, type (BUY/SELL), quantity, price, exchange, order_id, execution_time, geography, category, status]
+       - Note: Always quote as `"transaction"` because it's a reserved keyword.
+       - Note: execution_time is a timestamp. For monthly/yearly comparisons, use SQLite date functions like strftime('%m', execution_time) or strftime('%Y', execution_time).
+    2. Table "holding":
+       - columns: [symbol, stock_name, isin, quantity, avg_price, total_invested, geography, category, last_transaction_date]
+    
+    Your goal is to write highly efficient, read-only SELECT queries to answer user questions about their financial history and portfolio state.
+    Always prioritize accuracy and double-check column names against the schema provided above.""",
     tools=[execute_sql_query],
     llm=llm_reasoning,
     verbose=True,
@@ -347,6 +361,7 @@ def get_ai_response(history: list):
            - Do NOT provide a generic example or hallucinated data.
            - If the tool returns no holdings, state that the portfolio is empty.
         2. COMPARISON/HISTORICAL: If the user asks to compare dates or asks for state at a specific past date, you MUST use 'get_historical_holdings' with the appropriate date strings. 
+           - For complex transaction comparisons (e.g., month over month), utilize the 'sql_agent' to query the "transaction" table directly for precise results.
            - Calculate differences in total value, top holdings, and diversification between the points.
         3. If you fetch market prices, you MUST explicitly state whether the data is from 'Live Market Data' or if it is 'mock_data'.
            - Do not omit this information. The user needs to know the data source.
