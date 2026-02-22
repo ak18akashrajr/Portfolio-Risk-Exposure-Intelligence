@@ -24,6 +24,9 @@ class Holding(SQLModel, table=True):
     quantity: int
     avg_price: float
     total_invested: float
+    current_price: Optional[float] = Field(default=None)
+    current_valuation: Optional[float] = Field(default=None)
     geography: str = Field(default="India")
     category: str = Field(default="Equity(Stocks)")
     last_transaction_date: Optional[datetime] = None
+    last_updated_at: Optional[datetime] = Field(default=None)

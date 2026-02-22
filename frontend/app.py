@@ -246,11 +246,31 @@ with tabs[0]: # Dashboard
                 df_holdings = pd.DataFrame(holdings)
                 
                 # Metrics at top
-                m1, m2, m3 = st.columns(3)
+                m1, m2, m3, m4 = st.columns(4)
                 total_invested = df_holdings['total_invested'].sum()
-                m1.metric("Current Exposure", f"₹{total_invested:,.2f}")
-                m2.metric("Total Assets", len(df_holdings))
-                m3.metric("Avg. Yield", "--") # Placeholder for future logic
+                
+                # Check for live data status
+                last_updated = pd.to_datetime(df_holdings['last_updated_at']).max()
+                is_stale = (pd.Timestamp.now() - last_updated).total_seconds() > 300 if not pd.isna(last_updated) else True
+                status_color = "#10b981" if not is_stale else "#f59e0b"
+                status_text = "Live" if not is_stale else "Stale"
+                
+                current_valuation = df_holdings['current_valuation'].sum() if 'current_valuation' in df_holdings else 0.0
+                total_pnl = current_valuation - total_invested
+                pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+                
+                m1.metric("Invested Value", f"₹{total_invested:,.2f}")
+                m2.metric("Current Value", f"₹{current_valuation:,.2f}", f"{total_pnl:,.2f} ({pnl_pct:.2f}%)")
+                m3.metric("Total Assets", len(df_holdings))
+                
+                with m4:
+                    st.markdown(f"""
+                        <div style="background: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1); text-align: center;">
+                            <p style="margin: 0; color: #94a3b8; font-size: 0.8rem;">Data Status</p>
+                            <p style="margin: 0; color: {status_color}; font-weight: 700; font-size: 1.1rem;">● {status_text}</p>
+                            <p style="margin: 0; color: #64748b; font-size: 0.7rem;">{last_updated.strftime('%H:%M:%S') if not pd.isna(last_updated) else 'Never'}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
                 
                 st.divider()
                 
@@ -262,7 +282,7 @@ with tabs[0]: # Dashboard
                     st.markdown("<p style='text-align: center; font-weight: 600;'>Asset Allocation</p>", unsafe_allow_html=True)
                     fig_pie = px.pie(
                         df_holdings, 
-                        values='total_invested', 
+                        values='current_valuation' if 'current_valuation' in df_holdings and df_holdings['current_valuation'].sum() > 0 else 'total_invested', 
                         names='stock_name',
                         color_discrete_sequence=px.colors.sequential.Tealgrn,
                         hole=0.4
@@ -316,40 +336,70 @@ with tabs[0]: # Dashboard
                 
                 st.divider()
                 st.subheader("Real-time Holdings Details")
+                # Calculate PNL per holding
+                if 'current_price' in df_holdings:
+                    df_holdings['pnl'] = df_holdings['current_valuation'] - df_holdings['total_invested']
+                    df_holdings['pnl_%'] = (df_holdings['pnl'] / df_holdings['total_invested'] * 100).fillna(0)
+                
+                cols_to_show = ['stock_name', 'symbol', 'category', 'quantity', 'avg_price', 'total_invested']
+                if 'current_price' in df_holdings:
+                    cols_to_show += ['current_price', 'current_valuation', 'pnl', 'pnl_%']
+
                 st.dataframe(
-                    df_holdings[['stock_name', 'symbol', 'category', 'geography', 'quantity', 'avg_price', 'total_invested']],
+                    df_holdings[cols_to_show].sort_values(by='total_invested', ascending=False),
                     use_container_width=True,
                     height=300
                 )
                 
                 st.divider()
-                st.subheader("Capital Deployment History")
-                # Group by date to see investment over time
-                response_tx = requests.get(f"{BACKEND_URL}/transactions")
-                if response_tx.status_code == 200:
-                    df_tx = pd.DataFrame(response_tx.json())
-                    if not df_tx.empty:
-                        df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'], format='ISO8601')
-                        df_tx = df_tx.sort_values('execution_time')
-                        
-                        df_tx['investment_change'] = df_tx.apply(lambda x: x['price'] if x['type'].upper() == 'BUY' else -x['price'], axis=1)
-                        df_tx['cumulative_invested'] = df_tx['investment_change'].cumsum()
-                        
-                        fig_line = px.area(
-                            df_tx, 
-                            x='execution_time', 
-                            y='cumulative_invested',
-                            color_discrete_sequence=['#38bdf8']
-                        )
-                        fig_line.update_layout(
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            font_color="white",
-                            xaxis_title="Time",
-                            yaxis_title="Invested Value (₹)",
-                            margin=dict(t=20, b=20, l=20, r=20)
-                        )
-                        st.plotly_chart(fig_line, use_container_width=True)
+                st.subheader("Capital Deployment & Valuation History")
+                try:
+                    res_hist = requests.get(f"{BACKEND_URL}/valuation-history")
+                    if res_hist.status_code == 200:
+                        hist_data = res_hist.json()
+                        if hist_data:
+                            df_hist = pd.DataFrame(hist_data)
+                            df_hist['date'] = pd.to_datetime(df_hist['date'])
+                            
+                            # Melt the dataframe for plotly (long format)
+                            df_melted = df_hist.melt(id_vars=['date'], value_vars=['invested_value', 'market_value'], 
+                                                    var_name='Series', value_name='Value (₹)')
+                            
+                            # Clean up series names for display
+                            df_melted['Series'] = df_melted['Series'].replace({
+                                'invested_value': 'Invested Value',
+                                'market_value': 'Portfolio Valuation'
+                            })
+                            
+                            fig_area = px.area(
+                                df_melted, 
+                                x='date', 
+                                y='Value (₹)', 
+                                color='Series',
+                                color_discrete_map={
+                                    'Invested Value': 'rgba(56, 189, 248, 0.4)',  # Cyan-ish
+                                    'Portfolio Valuation': 'rgba(16, 185, 129, 0.4)' # Green-ish
+                                },
+                                markers=False
+                            )
+                            
+                            fig_area.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                font_color="white",
+                                xaxis_title="Timeline",
+                                yaxis_title="Value (₹)",
+                                margin=dict(t=20, b=20, l=20, r=20),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                hovermode='x unified'
+                            )
+                            st.plotly_chart(fig_area, use_container_width=True)
+                        else:
+                            st.info("No historical data available yet.")
+                    else:
+                        st.warning("Could not fetch valuation history.")
+                except Exception as e:
+                    st.error(f"Chart Error: {e}")
                     
             else:
                 st.info("💡 Your portfolio is empty. Add transactions to see analytics.")

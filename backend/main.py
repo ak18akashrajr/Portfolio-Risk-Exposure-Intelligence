@@ -60,9 +60,46 @@ async def manual_entry(data: ManualTransactionInput, session: Session = Depends(
 def get_transactions(session: Session = Depends(get_session)):
     return session.exec(select(Transaction)).all()
 
+import pandas as pd
+from .utils import get_real_time_prices, get_valuation_history
+
+@app.get("/valuation-history")
+def valuation_history(session: Session = Depends(get_session)):
+    transactions = session.exec(select(Transaction)).all()
+    if not transactions:
+        return []
+    
+    # Convert transactions to dicts for the utility function
+    tx_dicts = [tx.model_dump() for tx in transactions]
+    history = get_valuation_history(tx_dicts)
+    return history
+
 @app.get("/holdings", response_model=List[Holding])
 def get_holdings(session: Session = Depends(get_session)):
-    return session.exec(select(Holding)).all()
+    holdings = session.exec(select(Holding)).all()
+    if not holdings:
+        return []
+    
+    symbols = [h.symbol for h in holdings]
+    live_prices = get_real_time_prices(symbols)
+    
+    # Update holdings with live prices
+    updated_holdings = []
+    for holding in holdings:
+        price = live_prices.get(holding.symbol)
+        if price is not None:
+            holding.current_price = price
+            holding.current_valuation = price * holding.quantity
+            holding.last_updated_at = datetime.now()
+            session.add(holding)
+        updated_holdings.append(holding)
+    
+    session.commit()
+    # Refresh to ensure we return the latest state from DB
+    for h in updated_holdings:
+        session.refresh(h)
+        
+    return updated_holdings
 
 class ChatMessage(BaseModel):
     role: str
