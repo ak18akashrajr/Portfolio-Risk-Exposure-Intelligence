@@ -1,4 +1,10 @@
 [to-do]
+
+while update live-market price for mf explicitly insist it 
+
+
+
+
 implement agentic model(
     live market data agent
     transaction cum holdings agent, 

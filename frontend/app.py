@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+from datetime import datetime
 
 # Constants
 BACKEND_URL = "http://localhost:8000"
@@ -195,18 +196,24 @@ with tabs[2]: # Manual Transaction
             exchange = st.selectbox("Exchange", ["NSE", "BSE"])
         
         with col2:
-            quantity = st.number_input("Quantity", min_value=1, step=1)
+            quantity = st.number_input("Quantity", min_value=0.001, step=0.001, format="%.3f")
             price = st.number_input("Total Transaction Value (₹)", min_value=0.01)
             geography = st.text_input("Geography", value="India")
-            category = st.selectbox("Asset Category", ["Equity(Stocks)", "Debt(Bonds, FD)", "Commodity", "REIT", "Liquid Cash"])
+            category = st.selectbox("Asset Category", ["Equity(Stocks)", "Mutual Fund", "Debt(Bonds, FD)", "Commodity", "REIT", "Liquid Cash"])
             
         st.divider()
         st.markdown("### Optional Metadata")
         col3, col4 = st.columns(2)
         with col3:
-            stock_name = st.text_input("Full Stock Name")
+            stock_name = st.text_input("Full Stock Name/Scheme Name")
         with col4:
             isin = st.text_input("ISIN Number")
+        
+        col5, col6 = st.columns(2)
+        with col5:
+            folio_number = st.text_input("Folio Number (for Mutual Funds)")
+        with col6:
+            st.empty()
             
         submitted = st.form_submit_button("🔥 Add Transaction")
         
@@ -221,9 +228,10 @@ with tabs[2]: # Manual Transaction
                     "price": price,
                     "exchange": exchange,
                     "stock_name": stock_name if stock_name else None,
-                    "isin": isin if isin else None,
+                    "isin": isin,
                     "geography": geography,
-                    "category": category
+                    "category": category,
+                    "folio_number": folio_number
                 }
                 
                 try:
@@ -341,14 +349,27 @@ with tabs[0]: # Dashboard
                     df_holdings['pnl'] = df_holdings['current_valuation'] - df_holdings['total_invested']
                     df_holdings['pnl_%'] = (df_holdings['pnl'] / df_holdings['total_invested'] * 100).fillna(0)
                 
+                # Add stale indicator to current_price and current_valuation
+                def format_price(row):
+                    if pd.isna(row['last_updated_at']):
+                        return f"₹{row['current_price']:.2f} (stale)"
+                    
+                    diff = datetime.now() - pd.to_datetime(row['last_updated_at'])
+                    if diff.total_seconds() > 3600: # 1 hour
+                        return f"₹{row['current_price']:.2f} (stale)"
+                    return f"₹{row['current_price']:.2f}"
+
+                if 'current_price' in df_holdings and not df_holdings.empty:
+                    df_holdings['display_price'] = df_holdings.apply(format_price, axis=1)
+                
                 cols_to_show = ['stock_name', 'symbol', 'category', 'quantity', 'avg_price', 'total_invested']
                 if 'current_price' in df_holdings:
-                    cols_to_show += ['current_price', 'current_valuation', 'pnl', 'pnl_%']
+                    cols_to_show += ['display_price', 'current_valuation', 'pnl', 'pnl_%']
 
                 st.dataframe(
-                    df_holdings[cols_to_show].sort_values(by='total_invested', ascending=False),
+                    df_holdings[cols_to_show].sort_values(by='current_valuation', ascending=False),
                     use_container_width=True,
-                    height=300
+                    height=400
                 )
                 
                 st.divider()
@@ -420,7 +441,7 @@ with tabs[1]: # Transactions
                 df_tx['execution_time'] = pd.to_datetime(df_tx['execution_time'], format='ISO8601')
                 
                 st.dataframe(
-                    df_tx[['execution_time', 'stock_name', 'symbol', 'type', 'quantity', 'price', 'category', 'geography', 'exchange', 'order_id']].sort_values(by='execution_time', ascending=False),
+                    df_tx[['execution_time', 'stock_name', 'symbol', 'folio_number', 'type', 'quantity', 'price', 'category', 'geography', 'exchange', 'order_id']].sort_values(by='execution_time', ascending=False),
                     use_container_width=True,
                     height=500
                 )
