@@ -50,7 +50,8 @@ async def manual_entry(data: ManualTransactionInput, session: Session = Depends(
             stock_name=data.stock_name,
             isin=data.isin,
             geography=data.geography,
-            category=data.category
+            category=data.category,
+            folio_number=data.folio_number
         )
         return {"message": "Transaction added successfully", "order_id": transaction.order_id}
     except Exception as e:
@@ -80,10 +81,11 @@ def get_holdings(session: Session = Depends(get_session)):
     if not holdings:
         return []
     
-    symbols = [h.symbol for h in holdings]
-    live_prices = get_real_time_prices(symbols)
+    # Filter for symbols that can be fetched (primarily stocks)
+    fetchable_symbols = [h.symbol for h in holdings if h.category != "Mutual Fund" or "." in h.symbol]
+    live_prices = get_real_time_prices(fetchable_symbols)
     
-    # Update holdings with live prices
+    # Update holdings with live prices if available, otherwise keep existing
     updated_holdings = []
     for holding in holdings:
         price = live_prices.get(holding.symbol)
@@ -92,10 +94,14 @@ def get_holdings(session: Session = Depends(get_session)):
             holding.current_valuation = price * holding.quantity
             holding.last_updated_at = datetime.now()
             session.add(holding)
+        elif holding.current_price is not None:
+            # Preserve stale price and just update valuation if quantity changed
+            holding.current_valuation = holding.current_price * holding.quantity
+            # Do not update last_updated_at here as price is stale
+            session.add(holding)
         updated_holdings.append(holding)
     
     session.commit()
-    # Refresh to ensure we return the latest state from DB
     for h in updated_holdings:
         session.refresh(h)
         
