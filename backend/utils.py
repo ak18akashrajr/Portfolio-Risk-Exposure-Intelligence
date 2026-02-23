@@ -28,33 +28,49 @@ def get_real_time_prices(symbols: List[str]) -> Dict[str, Optional[float]]:
 
     symbols_str = " ".join(processed_symbols)
     try:
-        data = yf.download(symbols_str, period="1d", interval="1m", progress=False)
+        # Remove interval="1m" to support Mutual Funds
+        data = yf.download(symbols_str, period="1d", progress=False)
         prices_dict = {}
         
-        if len(processed_symbols) == 1:
-            mapped = processed_symbols[0]
-            original = symbol_map[mapped]
-            if not data.empty and 'Close' in data:
-                val = data['Close'].iloc[-1]
-                prices_dict[original] = float(val) if not pd.isna(val) else None
-            else:
-                prices_dict[original] = None
-        else:
-            for mapped, original in symbol_map.items():
-                try:
+        for mapped, original in symbol_map.items():
+            price = None
+            try:
+                # Extract from batch data
+                if len(processed_symbols) == 1:
+                    if not data.empty and 'Close' in data:
+                        v = data['Close'].iloc[-1]
+                        price = float(v) if not pd.isna(v) else None
+                else:
                     if 'Close' in data and mapped in data['Close']:
-                        price = data['Close'][mapped].iloc[-1]
-                        prices_dict[original] = float(price) if not pd.isna(price) else None
-                    else:
-                        prices_dict[original] = None
-                except Exception as e:
-                    logger.error(f"Error extracting price for {mapped} ({original}): {e}")
-                    prices_dict[original] = None
+                        v = data['Close'][mapped].iloc[-1]
+                        price = float(v) if not pd.isna(v) else None
+                
+                # FALLBACK: If batch fails (common for MFs), use fast_info
+                if price is None:
+                    ticker = yf.Ticker(mapped)
+                    f_price = ticker.fast_info.last_price
+                    if f_price is not None and not pd.isna(f_price):
+                        price = float(f_price)
+            except Exception as e:
+                logger.error(f"Error for {mapped}: {e}")
+                # Individual fallback attempt
+                try:
+                    price = float(yf.Ticker(mapped).fast_info.last_price)
+                except:
+                    price = None
+            
+            prices_dict[original] = price
         
         return prices_dict
     except Exception as e:
-        logger.error(f"Network or API Error fetching prices with yfinance: {e}")
-        return {symbol: None for symbol in symbols}
+        logger.error(f"Batch download failed: {e}. Falling back to individual fetches.")
+        prices_dict = {}
+        for mapped, original in symbol_map.items():
+            try:
+                prices_dict[original] = float(yf.Ticker(mapped).fast_info.last_price)
+            except:
+                prices_dict[original] = None
+        return prices_dict
 
 def get_market_data_live(symbol: str):
     """Returns market data for a single symbol with real-time fetching."""

@@ -3,6 +3,8 @@
 while update live-market price for mf explicitly insist it 
 
 
+format table headings accordingly also symbols to be added (Rs, %)
+
 
 
 implement agentic model(
