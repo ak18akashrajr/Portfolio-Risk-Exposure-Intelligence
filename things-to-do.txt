@@ -9,7 +9,7 @@ implement agentic model(
     )
 compare point to point data timeline holdings
 also fix model response
-
+Add scenario based like how 15%xirr would look in 20yr
 
 
 integrate MF holdings

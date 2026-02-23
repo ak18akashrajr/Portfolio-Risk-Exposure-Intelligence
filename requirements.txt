@@ -16,3 +16,7 @@ crewai
 crewai-tools
 litellm
 google-genai
+langgraph
+langchain
+langchain-core
+langchain-google-genai
