@@ -366,10 +366,36 @@ with tabs[0]: # Dashboard
                 if 'current_price' in df_holdings:
                     cols_to_show += ['display_price', 'current_valuation', 'pnl', 'pnl_%']
 
+                # Prepare display dataframe
+                df_display = df_holdings[cols_to_show].copy()
+                
+                # Rename columns for better readability
+                column_mapping = {
+                    'stock_name': 'Stock Name',
+                    'symbol': 'Symbol',
+                    'category': 'Category',
+                    'quantity': 'Quantity',
+                    'avg_price': 'Avg Price',
+                    'total_invested': 'Total Invested',
+                    'display_price': 'Display Price',
+                    'current_valuation': 'Current Valuation',
+                    'pnl': 'P&L',
+                    'pnl_%': 'P&L %'
+                }
+                df_display = df_display.rename(columns=column_mapping)
+                
                 st.dataframe(
-                    df_holdings[cols_to_show].sort_values(by='current_valuation', ascending=False),
+                    df_display.sort_values(by='Current Valuation' if 'Current Valuation' in df_display else 'Total Invested', ascending=False),
                     use_container_width=True,
-                    height=400
+                    height=400,
+                    column_config={
+                        "Avg Price": st.column_config.NumberColumn(format="₹%.2f"),
+                        "Total Invested": st.column_config.NumberColumn(format="₹%.2f"),
+                        "Current Valuation": st.column_config.NumberColumn(format="₹%.2f"),
+                        "P&L": st.column_config.NumberColumn(format="₹%.2f"),
+                        "P&L %": st.column_config.NumberColumn(format="%.2f%%"),
+                        "Quantity": st.column_config.NumberColumn(format="%.3f"),
+                    }
                 )
                 
                 st.divider()

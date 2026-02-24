@@ -1,9 +1,9 @@
 [to-do]
 
 while update live-market price for mf explicitly insist it 
+show recorded stale data at valuation history instead of 0 
 
 
-format table headings accordingly also symbols to be added (Rs, %)
 
 
 
@@ -17,7 +17,7 @@ implement agentic model(
     )
 compare point to point data timeline holdings
 also fix model response
-Add scenario based like how 15%xirr would look in 20yr
+Add scenario based like how 15%xirr(not a fixed, could be able to plot for any number given by user) would look in 20yr
 
 
 integrate MF holdings
@@ -55,3 +55,4 @@ SQL Agent: Executes complex granular database queries.
 5. dynamic filter to be added at transaction page, [not needed explicit ah na pathukuren, db la irundhu direct ah query panikalam]
 6. add geographical context 
 7. add asset category(Equity(Stocks), Debt(Bonds, FD), Commodities, REITs, Cash)
+8. format table headings accordingly also symbols to be added (Rs, %)
