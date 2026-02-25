@@ -20,7 +20,7 @@ also fix model response
 Add scenario based like how 15%xirr(not a fixed, could be able to plot for any number given by user) would look in 20yr
 
 
-integrate MF holdings
+
 integrate liquid cash holdings
 add manual data adding feature (partially done) [test w/ new ticker]
 fetch-real-time--price viz yfinance
@@ -56,3 +56,4 @@ SQL Agent: Executes complex granular database queries.
 6. add geographical context 
 7. add asset category(Equity(Stocks), Debt(Bonds, FD), Commodities, REITs, Cash)
 8. format table headings accordingly also symbols to be added (Rs, %)
+9. integrate MF holdings
