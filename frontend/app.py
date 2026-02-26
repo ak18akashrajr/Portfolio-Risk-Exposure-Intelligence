@@ -165,83 +165,7 @@ st.markdown("""
 st.markdown("<h1 style='text-align: center;'>🚀 Portfolio Risk & Exposure Intelligence</h1>", unsafe_allow_html=True)
 
 # Top Navigation Bar using Tabs
-tabs = st.tabs(["📈 Dashboard", "📜 Transactions", "✍️ Manual Entry", "📤 Upload Data", "🤖 AI Assistant"])
-
-with tabs[3]: # Upload Data
-    st.header("Upload Portfolio Data")
-    st.info("Upload your Excel file to sync your trades and holdings.")
-    uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx", "xls"], label_visibility="collapsed")
-    
-    if uploaded_file is not None:
-        if st.button("Process & Sync File"):
-            with st.spinner("Analyzing and synchronizing data..."):
-                try:
-                    response = requests.post(f"{BACKEND_URL}/upload", files={"file": (uploaded_file.name, uploaded_file.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
-                    if response.status_code == 200:
-                        st.success("✨ Portfolio successfully synchronized!")
-                        st.balloons()
-                    else:
-                        st.error(f"❌ Error: {response.json().get('detail', 'Unknown error')}")
-                except Exception as e:
-                    st.error(f"📡 Backend Connection Failed: {e}")
-
-with tabs[2]: # Manual Transaction
-    st.header("Add Transaction Manually")
-    
-    with st.form("manual_entry_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            symbol = st.text_input("Stock Symbol (e.g. RELIANCE.NS)").upper()
-            tx_type = st.selectbox("Transaction Type", ["BUY", "SELL"])
-            exchange = st.selectbox("Exchange", ["NSE", "BSE"])
-        
-        with col2:
-            quantity = st.number_input("Quantity", min_value=0.001, step=0.001, format="%.3f")
-            price = st.number_input("Total Transaction Value (₹)", min_value=0.01)
-            geography = st.text_input("Geography", value="India")
-            category = st.selectbox("Asset Category", ["Equity(Stocks)", "Mutual Fund", "Debt(Bonds, FD)", "Commodity", "REIT", "Liquid Cash"])
-            
-        st.divider()
-        st.markdown("### Optional Metadata")
-        col3, col4 = st.columns(2)
-        with col3:
-            stock_name = st.text_input("Full Stock Name/Scheme Name")
-        with col4:
-            isin = st.text_input("ISIN Number")
-        
-        col5, col6 = st.columns(2)
-        with col5:
-            folio_number = st.text_input("Folio Number (for Mutual Funds)")
-        with col6:
-            st.empty()
-            
-        submitted = st.form_submit_button("🔥 Add Transaction")
-        
-        if submitted:
-            if not symbol:
-                st.error("❗ Stock Symbol is mandatory.")
-            else:
-                payload = {
-                    "symbol": symbol,
-                    "type": tx_type,
-                    "quantity": quantity,
-                    "price": price,
-                    "exchange": exchange,
-                    "stock_name": stock_name if stock_name else None,
-                    "isin": isin,
-                    "geography": geography,
-                    "category": category,
-                    "folio_number": folio_number
-                }
-                
-                try:
-                    response = requests.post(f"{BACKEND_URL}/transactions/manual", json=payload)
-                    if response.status_code == 200:
-                        st.success(f"✅ Transaction Securely Recorded! Order ID: `{response.json().get('order_id')}`")
-                    else:
-                        st.error(f"❌ Backend Rejection: {response.json().get('detail')}")
-                except Exception as e:
-                    st.error(f"📡 Connection Lost: {e}")
+tabs = st.tabs(["📈 Dashboard", "📜 Transactions", "📊 XIRR & Projections", "✍️ Manual Entry", "📤 Upload Data", "🤖 AI Assistant"])
 
 with tabs[0]: # Dashboard
     st.header("Portfolio Overview")
@@ -322,7 +246,7 @@ with tabs[0]: # Dashboard
                         showlegend=False
                     )
                     st.plotly_chart(fig_cat, use_container_width=True)
-
+ 
                 with c3:
                     st.markdown("<p style='text-align: center; font-weight: 600;'>Geographic Exposure</p>", unsafe_allow_html=True)
                     df_geo = df_holdings.groupby('geography')['total_invested'].sum().reset_index()
@@ -358,14 +282,14 @@ with tabs[0]: # Dashboard
                     if diff.total_seconds() > 3600: # 1 hour
                         return f"₹{row['current_price']:.2f} (stale)"
                     return f"₹{row['current_price']:.2f}"
-
+ 
                 if 'current_price' in df_holdings and not df_holdings.empty:
                     df_holdings['display_price'] = df_holdings.apply(format_price, axis=1)
                 
                 cols_to_show = ['stock_name', 'symbol', 'category', 'quantity', 'avg_price', 'total_invested']
                 if 'current_price' in df_holdings:
                     cols_to_show += ['display_price', 'current_valuation', 'pnl', 'pnl_%']
-
+ 
                 # Prepare display dataframe
                 df_display = df_holdings[cols_to_show].copy()
                 
@@ -478,7 +402,147 @@ with tabs[1]: # Transactions
     except Exception as e:
         st.error(f"📡 Backend unreachable: {e}")
 
-with tabs[4]: # AI Assistant
+with tabs[2]: # XIRR & Projections
+    st.header("XIRR & Portfolio Growth Projection")
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        projection_years = st.number_input("Years to Project", min_value=1, max_value=30, value=5)
+        st.info("XIRR (Extended Internal Rate of Return) represents the actual annual growth rate of your investments, accounting for the timing of all cash flows (buys and sells).")
+        
+    try:
+        response = requests.get(f"{BACKEND_URL}/xirr-projection", params={"years": projection_years})
+        if response.status_code == 200:
+            data = response.json()
+            xirr = data.get("xirr", 0)
+            projections = data.get("projections", [])
+            
+            with col1:
+                st.metric("Current XIRR", f"{xirr}%")
+                if xirr > 0:
+                    st.success(f"Your portfolio is growing at an annual rate of {xirr}%.")
+                elif xirr < 0:
+                    st.warning(f"Your portfolio has a negative annual return of {xirr}%.")
+                else:
+                    st.info("XIRR is 0% or couldn't be calculated yet.")
+            
+            with col2:
+                if projections:
+                    df_proj = pd.DataFrame(projections)
+                    df_proj['date'] = pd.to_datetime(df_proj['date'])
+                    
+                    fig_proj = px.line(
+                        df_proj, 
+                        x='date', 
+                        y='value',
+                        title=f"Projected Growth over {projection_years} Years (at {xirr}% XIRR)",
+                        labels={'value': 'Projected Value (₹)', 'date': 'Year'},
+                        markers=True
+                    )
+                    
+                    fig_proj.update_traces(line_color='#0ea5e9', line_width=3, marker=dict(size=8))
+                    
+                    fig_proj.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font_color="white",
+                        xaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)'),
+                        yaxis=dict(showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)'),
+                        margin=dict(t=50, b=20, l=20, r=20),
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig_proj, use_container_width=True)
+                    
+                    st.subheader("Year-on-Year Projected Values")
+                    df_display = df_proj.copy()
+                    df_display['date'] = df_display['date'].dt.year
+                    df_display = df_display.rename(columns={'date': 'Year', 'value': 'Projected Value (₹)'})
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No projection data available yet.")
+        else:
+            st.error("Failed to fetch XIRR and projection data.")
+    except Exception as e:
+        st.error(f"📡 Backend unreachable: {e}")
+
+with tabs[3]: # Manual Entry
+    st.header("Add Transaction Manually")
+    
+    with st.form("manual_entry_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            symbol = st.text_input("Stock Symbol (e.g. RELIANCE.NS)").upper()
+            tx_type = st.selectbox("Transaction Type", ["BUY", "SELL"])
+            exchange = st.selectbox("Exchange", ["NSE", "BSE"])
+        
+        with col2:
+            quantity = st.number_input("Quantity", min_value=0.001, step=0.001, format="%.3f")
+            price = st.number_input("Total Transaction Value (₹)", min_value=0.01)
+            geography = st.text_input("Geography", value="India")
+            category = st.selectbox("Asset Category", ["Equity(Stocks)", "Mutual Fund", "Debt(Bonds, FD)", "Commodity", "REIT", "Liquid Cash"])
+            
+        st.divider()
+        st.markdown("### Optional Metadata")
+        col3, col4 = st.columns(2)
+        with col3:
+            stock_name = st.text_input("Full Stock Name/Scheme Name")
+        with col4:
+            isin = st.text_input("ISIN Number")
+        
+        col5, col6 = st.columns(2)
+        with col5:
+            folio_number = st.text_input("Folio Number (for Mutual Funds)")
+        with col6:
+            st.empty()
+            
+        submitted = st.form_submit_button("🔥 Add Transaction")
+        
+        if submitted:
+            if not symbol:
+                st.error("❗ Stock Symbol is mandatory.")
+            else:
+                payload = {
+                    "symbol": symbol,
+                    "type": tx_type,
+                    "quantity": quantity,
+                    "price": price,
+                    "exchange": exchange,
+                    "stock_name": stock_name if stock_name else None,
+                    "isin": isin,
+                    "geography": geography,
+                    "category": category,
+                    "folio_number": folio_number
+                }
+                
+                try:
+                    response = requests.post(f"{BACKEND_URL}/transactions/manual", json=payload)
+                    if response.status_code == 200:
+                        st.success(f"✅ Transaction Securely Recorded! Order ID: `{response.json().get('order_id')}`")
+                    else:
+                        st.error(f"❌ Backend Rejection: {response.json().get('detail')}")
+                except Exception as e:
+                    st.error(f"📡 Connection Lost: {e}")
+
+with tabs[4]: # Upload Data
+    st.header("Upload Portfolio Data")
+    st.info("Upload your Excel file to sync your trades and holdings.")
+    uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx", "xls"], label_visibility="collapsed")
+    
+    if uploaded_file is not None:
+        if st.button("Process & Sync File"):
+            with st.spinner("Analyzing and synchronizing data..."):
+                try:
+                    response = requests.post(f"{BACKEND_URL}/upload", files={"file": (uploaded_file.name, uploaded_file.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+                    if response.status_code == 200:
+                        st.success("✨ Portfolio successfully synchronized!")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ Error: {response.json().get('detail', 'Unknown error')}")
+                except Exception as e:
+                    st.error(f"📡 Backend Connection Failed: {e}")
+
+with tabs[5]: # AI Assistant
     st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🤖 GPT Portfolio Assistant</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #94a3b8;'>Real-time AI analysis for your portfolio.</p>", unsafe_allow_html=True)
     st.divider()
@@ -501,7 +565,7 @@ with tabs[4]: # AI Assistant
                 - *'What is my total exposure in India?'*
                 - *'Compare my November 2024 and 2025 transactions.'*
                 """)
-
+ 
     # Display chat messages from history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -526,12 +590,12 @@ with tabs[4]: # AI Assistant
                     st.markdown(content)
             else:
                 st.markdown(content)
-
+ 
     # Chat input
     if prompt := st.chat_input("Ask a question about your portfolio..."):
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
-
+ 
         try:
             with st.spinner("AI is thinking..."):
                 response = requests.post(

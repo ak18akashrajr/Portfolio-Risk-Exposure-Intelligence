@@ -1,5 +1,6 @@
 [to-do]
 
+update feb data
 while update live-market price for mf explicitly insist it 
 show recorded stale data at valuation history instead of 0 
 
@@ -17,7 +18,6 @@ implement agentic model(
     )
 compare point to point data timeline holdings
 also fix model response
-Add scenario based like how 15%xirr(not a fixed, could be able to plot for any number given by user) would look in 20yr
 
 
 
@@ -57,3 +57,4 @@ SQL Agent: Executes complex granular database queries.
 7. add asset category(Equity(Stocks), Debt(Bonds, FD), Commodities, REITs, Cash)
 8. format table headings accordingly also symbols to be added (Rs, %)
 9. integrate MF holdings
+10. Add scenario based like how 15%xirr(not a fixed, could be able to plot for any number given by user) would look in 20yr

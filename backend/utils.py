@@ -178,3 +178,56 @@ def get_valuation_history(transactions: List[Dict]) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error calculating valuation history: {e}")
         return []
+
+def calculate_xirr(cash_flows: List[Dict[str, any]]) -> Optional[float]:
+    """
+    Calculates the Internal Rate of Return for a series of cash flows at irregular intervals.
+    cash_flows: List of dicts with 'date' (datetime) and 'amount' (float).
+    Uses the bisection method to solve for the root of the NPV function.
+    """
+    if not cash_flows:
+        return None
+
+    def npv(rate: float, cash_flows: List[Dict]) -> float:
+        total_npv = 0
+        t0 = min(cf['date'] for cf in cash_flows)
+        for cf in cash_flows:
+            t = (cf['date'] - t0).days / 365.0
+            total_npv += cf['amount'] / ((1 + rate) ** t)
+        return total_npv
+
+    # Filter out zero cash flows
+    cash_flows = [cf for cf in cash_flows if cf['amount'] != 0]
+    if not cash_flows:
+        return None
+
+    # Solver parameters
+    low = -0.99
+    high = 10.0  # 1000% upper limit for safety
+    max_iter = 100
+    tol = 1e-6
+
+    # Check for sign change
+    f_low = npv(low, cash_flows)
+    f_high = npv(high, cash_flows)
+
+    if f_low * f_high > 0:
+        # No root in range, try to expand high if it's potentially very high
+        # Or return None if it's clearly not converging
+        return None
+
+    for _ in range(max_iter):
+        mid = (low + high) / 2
+        f_mid = npv(mid, cash_flows)
+        
+        if abs(f_mid) < tol:
+            return mid
+        
+        if f_low * f_mid < 0:
+            high = mid
+            f_high = f_mid
+        else:
+            low = mid
+            f_low = f_mid
+            
+    return (low + high) / 2

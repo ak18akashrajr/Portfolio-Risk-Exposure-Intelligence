@@ -62,7 +62,7 @@ def get_transactions(session: Session = Depends(get_session)):
     return session.exec(select(Transaction)).all()
 
 import pandas as pd
-from .utils import get_real_time_prices, get_valuation_history
+from .utils import get_real_time_prices, get_valuation_history, calculate_xirr, get_valuation_history
 
 @app.get("/valuation-history")
 def valuation_history(session: Session = Depends(get_session)):
@@ -134,6 +134,62 @@ def delete_transaction(order_id: str, session: Session = Depends(get_session)):
     session.commit()
     update_holdings(session)
     return {"message": "Transaction deleted and holdings synced successfully"}
+
+@app.get("/xirr-projection")
+def xirr_projection(years: int = 5, session: Session = Depends(get_session)):
+    transactions = session.exec(select(Transaction)).all()
+    if not transactions:
+        return {"xirr": 0, "projections": []}
+    
+    holdings = session.exec(select(Holding)).all()
+    
+    # Calculate current valuation
+    total_valuation = 0
+    fetchable_symbols = [h.symbol for h in holdings if h.category != "Mutual Fund" or "." in h.symbol]
+    live_prices = get_real_time_prices(fetchable_symbols)
+    
+    for holding in holdings:
+        price = live_prices.get(holding.symbol) or holding.current_price or 0
+        total_valuation += price * holding.quantity
+        
+    # Prepare cash flows for XIRR
+    cash_flows = []
+    for tx in transactions:
+        # BUY is negative cash flow (money going out)
+        # SELL is positive cash flow (money coming in)
+        amount = -tx.price if tx.type.upper() == "BUY" else tx.price
+        cash_flows.append({"date": tx.execution_time, "amount": amount})
+    
+    # Add current valuation as a positive cash flow as of today
+    cash_flows.append({"date": datetime.now(), "amount": total_valuation})
+    
+    xirr = calculate_xirr(cash_flows)
+    if xirr is None:
+        xirr = 0
+        
+    # Generate projections
+    projections = []
+    current_date = datetime.now()
+    growth_rate = xirr if xirr > 0 else 0 # Assume 0 growth if XIRR is negative for projection
+    
+    # Add year 0
+    projections.append({
+        "date": current_date.strftime("%Y-%m-%d"),
+        "value": round(total_valuation, 2)
+    })
+    
+    for y in range(1, years + 1):
+        future_date = current_date.replace(year=current_date.year + y)
+        projected_value = total_valuation * ((1 + growth_rate) ** y)
+        projections.append({
+            "date": future_date.strftime("%Y-%m-%d"),
+            "value": round(projected_value, 2)
+        })
+        
+    return {
+        "xirr": round(xirr * 100, 2), # Return as percentage
+        "projections": projections
+    }
 
 @app.get("/health")
 def health_check():
