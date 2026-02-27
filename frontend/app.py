@@ -4,6 +4,36 @@ import requests
 import plotly.express as px
 from datetime import datetime
 
+def format_indian_currency(amount: float) -> str:
+    """
+    Formats a number into Indian Numbering System (Lakh/Crore) with commas.
+    Example: 1234567.89 -> 12,34,567.89
+    """
+    if str(amount) == 'nan' or amount is None:
+        return "₹0.00"
+    
+    s = f"{amount:.2f}"
+    if "." in s:
+        integer_part, decimal_part = s.split(".")
+    else:
+        integer_part, decimal_part = s, "00"
+    
+    # Process integer part for Indian commas
+    res = ""
+    # Last 3 digits
+    if len(integer_part) > 3:
+        res = "," + integer_part[-3:]
+        remaining = integer_part[:-3]
+        # Groups of 2 for the rest
+        while len(remaining) > 2:
+            res = "," + remaining[-2:] + res
+            remaining = remaining[:-2]
+        res = remaining + res
+    else:
+        res = integer_part
+    
+    return f"₹{res}.{decimal_part}"
+
 # Constants
 BACKEND_URL = "http://localhost:8000"
 
@@ -191,16 +221,18 @@ with tabs[0]: # Dashboard
                 total_pnl = current_valuation - total_invested
                 pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
                 
-                m1.metric("Invested Value", f"₹{total_invested:,.2f}")
-                m2.metric("Current Value", f"₹{current_valuation:,.2f}", f"{total_pnl:,.2f} ({pnl_pct:.2f}%)")
+                m1.metric("Invested Value", format_indian_currency(total_invested))
+                m2.metric("Current Value", format_indian_currency(current_valuation), f"{total_pnl:,.2f} ({pnl_pct:.2f}%)")
                 m3.metric("Total Assets", len(df_holdings))
                 
                 with m4:
+                    last_fetched_str = last_updated.strftime('%d %b %Y, %H:%M') if not pd.isna(last_updated) else 'Never'
                     st.markdown(f"""
                         <div style="background: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1); text-align: center;">
                             <p style="margin: 0; color: #94a3b8; font-size: 0.8rem;">Data Status</p>
                             <p style="margin: 0; color: {status_color}; font-weight: 700; font-size: 1.1rem;">● {status_text}</p>
-                            <p style="margin: 0; color: #64748b; font-size: 0.7rem;">{last_updated.strftime('%H:%M:%S') if not pd.isna(last_updated) else 'Never'}</p>
+                            <p style="margin: 2px 0 0 0; color: #64748b; font-size: 0.7rem;">Last Fetched</p>
+                            <p style="margin: 0; color: #94a3b8; font-size: 0.75rem;">{last_fetched_str}</p>
                         </div>
                     """, unsafe_allow_html=True)
                 
@@ -219,8 +251,10 @@ with tabs[0]: # Dashboard
                         color_discrete_sequence=px.colors.sequential.Tealgrn,
                         hole=0.4
                     )
+                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                     fig_pie.update_layout(
-                        margin=dict(t=0, b=0, l=0, r=0),
+                        margin=dict(t=20, b=20, l=10, r=10),
+                        height=280,
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)',
                         font_color="white",
@@ -238,8 +272,10 @@ with tabs[0]: # Dashboard
                         color_discrete_sequence=px.colors.sequential.Blues_r,
                         hole=0.4
                     )
+                    fig_cat.update_traces(textposition='inside', textinfo='percent+label')
                     fig_cat.update_layout(
-                        margin=dict(t=0, b=0, l=0, r=0),
+                        margin=dict(t=20, b=20, l=10, r=10),
+                        height=280,
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)',
                         font_color="white",
@@ -257,8 +293,10 @@ with tabs[0]: # Dashboard
                         color_discrete_sequence=px.colors.sequential.Purp_r,
                         hole=0.4
                     )
+                    fig_geo.update_traces(textposition='inside', textinfo='percent+label')
                     fig_geo.update_layout(
-                        margin=dict(t=0, b=0, l=0, r=0),
+                        margin=dict(t=20, b=20, l=10, r=10),
+                        height=280,
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)',
                         font_color="white",
@@ -276,12 +314,12 @@ with tabs[0]: # Dashboard
                 # Add stale indicator to current_price and current_valuation
                 def format_price(row):
                     if pd.isna(row['last_updated_at']):
-                        return f"₹{row['current_price']:.2f} (stale)"
+                        return f"{format_indian_currency(row['current_price'])} (stale)"
                     
                     diff = datetime.now() - pd.to_datetime(row['last_updated_at'])
                     if diff.total_seconds() > 3600: # 1 hour
-                        return f"₹{row['current_price']:.2f} (stale)"
-                    return f"₹{row['current_price']:.2f}"
+                        return f"{format_indian_currency(row['current_price'])} (stale)"
+                    return format_indian_currency(row['current_price'])
  
                 if 'current_price' in df_holdings and not df_holdings.empty:
                     df_holdings['display_price'] = df_holdings.apply(format_price, axis=1)
@@ -292,6 +330,14 @@ with tabs[0]: # Dashboard
  
                 # Prepare display dataframe
                 df_display = df_holdings[cols_to_show].copy()
+                
+                # Apply Indian formatting to monetary columns
+                df_display['avg_price'] = df_display['avg_price'].apply(format_indian_currency)
+                df_display['total_invested'] = df_display['total_invested'].apply(format_indian_currency)
+                if 'current_valuation' in df_display:
+                    df_display['current_valuation'] = df_display['current_valuation'].apply(format_indian_currency)
+                    df_display['pnl'] = df_display['pnl'].apply(format_indian_currency)
+                    df_display['pnl_%'] = df_display['pnl_%'].apply(lambda x: f"{x:.2f}%")
                 
                 # Rename columns for better readability
                 column_mapping = {
@@ -313,11 +359,6 @@ with tabs[0]: # Dashboard
                     use_container_width=True,
                     height=400,
                     column_config={
-                        "Avg Price": st.column_config.NumberColumn(format="₹%.2f"),
-                        "Total Invested": st.column_config.NumberColumn(format="₹%.2f"),
-                        "Current Valuation": st.column_config.NumberColumn(format="₹%.2f"),
-                        "P&L": st.column_config.NumberColumn(format="₹%.2f"),
-                        "P&L %": st.column_config.NumberColumn(format="%.2f%%"),
                         "Quantity": st.column_config.NumberColumn(format="%.3f"),
                     }
                 )
@@ -341,17 +382,24 @@ with tabs[0]: # Dashboard
                                 'invested_value': 'Invested Value',
                                 'market_value': 'Portfolio Valuation'
                             })
+                            df_melted['Formatted Value'] = df_melted['Value (₹)'].apply(format_indian_currency)
                             
                             fig_area = px.area(
                                 df_melted, 
                                 x='date', 
                                 y='Value (₹)', 
                                 color='Series',
+                                custom_data=['Formatted Value'],
                                 color_discrete_map={
                                     'Invested Value': 'rgba(56, 189, 248, 0.4)',  # Cyan-ish
                                     'Portfolio Valuation': 'rgba(16, 185, 129, 0.4)' # Green-ish
                                 },
                                 markers=False
+                            )
+                            
+                            # Add Indian formatting to hover
+                            fig_area.update_traces(
+                                hovertemplate="Value: %{customdata[0]}"
                             )
                             
                             fig_area.update_layout(
@@ -441,7 +489,17 @@ with tabs[2]: # XIRR & Projections
                         markers=True
                     )
                     
-                    fig_proj.update_traces(line_color='#0ea5e9', line_width=3, marker=dict(size=8))
+                    # Update hover template to use Indian formatting
+                    fig_proj.update_traces(
+                        line_color='#0ea5e9', 
+                        line_width=3, 
+                        marker=dict(size=8),
+                        hovertemplate="<br>".join([
+                            "Year: %{x}",
+                            "Value: %{customdata}"
+                        ]),
+                        customdata=df_proj['value'].apply(format_indian_currency)
+                    )
                     
                     fig_proj.update_layout(
                         paper_bgcolor='rgba(0,0,0,0)',
@@ -457,7 +515,9 @@ with tabs[2]: # XIRR & Projections
                     st.subheader("Year-on-Year Projected Values")
                     df_display = df_proj.copy()
                     df_display['date'] = df_display['date'].dt.year
-                    df_display = df_display.rename(columns={'date': 'Year', 'value': 'Projected Value (₹)'})
+                    # Apply Indian formatting
+                    df_display['value'] = df_display['value'].apply(format_indian_currency)
+                    df_display = df_display.rename(columns={'date': 'Year', 'value': 'Projected Value'})
                     st.dataframe(df_display, use_container_width=True, hide_index=True)
                 else:
                     st.info("No projection data available yet.")

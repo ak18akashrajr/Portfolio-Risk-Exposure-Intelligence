@@ -112,7 +112,8 @@ def get_valuation_history(transactions: List[Dict]) -> List[Dict]:
     symbol_map = {f"{s}.NS" if "." not in s else s: s for s in symbols}
     
     start_date = df_tx['execution_time'].min().strftime('%Y-%m-%d')
-    end_date = datetime.now().strftime('%Y-%m-%d')
+    # Use tomorrow as end_date to ensure we get today's data if available
+    end_date = (datetime.now() + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     
     try:
         # Fetch daily close prices
@@ -124,13 +125,22 @@ def get_valuation_history(transactions: List[Dict]) -> List[Dict]:
             hist_data.columns = [processed_symbols[0]]
             
         hist_data = hist_data.rename(columns=symbol_map)
-        hist_data = hist_data.resample('D').ffill()
+        # Forward fill and then backward fill just in case, but keep NaNs if absolutely no data
+        hist_data = hist_data.ffill().bfill()
         
-        timeline = pd.date_range(start=start_date, end=end_date, freq='D')
+        # Get live prices for today's fallback
+        live_prices = get_real_time_prices(symbols)
+        
+        today_date = datetime.now().date()
+        timeline = pd.date_range(start=start_date, end=datetime.now(), freq='D')
         valuation_history = []
         
-        for current_date in timeline:
-            mask = df_tx['execution_time'] <= current_date
+        # Keep track of last known prices per symbol to carry forward manually if needed
+        last_known_prices = {s: 0.0 for s in symbols}
+        
+        for current_ts in timeline:
+            current_date = current_ts.date()
+            mask = df_tx['execution_time'] <= pd.Timestamp(current_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
             past_tx = df_tx[mask]
             
             total_invested = 0
@@ -146,9 +156,8 @@ def get_valuation_history(transactions: List[Dict]) -> List[Dict]:
                 for _, tx in sym_tx.iterrows():
                     if tx['type'].upper() == 'BUY':
                         qty += tx['quantity']
-                        sym_invested += tx['price'] # tx['price'] is already the total buy value
+                        sym_invested += tx['price']
                     else:
-                        # For sell, we reduce quantity and proportional cost basis
                         if qty > 0:
                             reduction_ratio = tx['quantity'] / qty
                             sym_invested *= (1 - reduction_ratio)
@@ -158,18 +167,31 @@ def get_valuation_history(transactions: List[Dict]) -> List[Dict]:
                 
                 if qty > 0:
                     price = 0
+                    # Try getting price from history
                     if symbol in hist_data.columns:
-                        day_price = hist_data.loc[current_date, symbol] if current_date in hist_data.index else None
-                        if pd.isna(day_price) or day_price is None:
-                            valid_prices = hist_data[symbol].loc[:current_date].dropna()
-                            price = valid_prices.iloc[-1] if not valid_prices.empty else 0
-                        else:
-                            price = day_price
+                        # Find closest date in index that is <= current_date
+                        valid_idx = hist_data.index[hist_data.index.date <= current_date]
+                        if not valid_idx.empty:
+                            hist_price = hist_data.loc[valid_idx[-1], symbol]
+                            if not pd.isna(hist_price):
+                                price = hist_price
+                                last_known_prices[symbol] = price
                     
+                    # For today, if hist is missing or we want latest, use live_prices
+                    if current_date == today_date:
+                        lp = live_prices.get(symbol)
+                        if lp is not None:
+                            price = lp
+                            last_known_prices[symbol] = price
+                    
+                    # Final fallback: use last known
+                    if price == 0 or pd.isna(price):
+                        price = last_known_prices.get(symbol, 0.0)
+                        
                     total_valuation += (qty * price)
             
             valuation_history.append({
-                "date": current_date.date().isoformat(),
+                "date": current_date.isoformat(),
                 "invested_value": round(float(total_invested), 2),
                 "market_value": round(float(total_valuation), 2)
             })
@@ -231,3 +253,33 @@ def calculate_xirr(cash_flows: List[Dict[str, any]]) -> Optional[float]:
             f_low = f_mid
             
     return (low + high) / 2
+
+def format_indian_currency(amount: float) -> str:
+    """
+    Formats a number into Indian Numbering System (Lakh/Crore) with commas.
+    Example: 1234567.89 -> 12,34,567.89
+    """
+    if str(amount) == 'nan' or amount is None:
+        return "₹0.00"
+    
+    s = f"{amount:.2f}"
+    if "." in s:
+        integer_part, decimal_part = s.split(".")
+    else:
+        integer_part, decimal_part = s, "00"
+    
+    # Process integer part for Indian commas
+    res = ""
+    # Last 3 digits
+    if len(integer_part) > 3:
+        res = "," + integer_part[-3:]
+        remaining = integer_part[:-3]
+        # Groups of 2 for the rest
+        while len(remaining) > 2:
+            res = "," + remaining[-2:] + res
+            remaining = remaining[:-2]
+        res = remaining + res
+    else:
+        res = integer_part
+    
+    return f"₹{res}.{decimal_part}"

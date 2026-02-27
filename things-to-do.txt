@@ -1,12 +1,11 @@
 [to-do]
 
-update feb data
-while update live-market price for mf explicitly insist it 
+Chart Axis Relevancy : So now onto the final ui fix, 
+In the Cash Deployment & Valuation History Section the value in the left side axis does not correspond or correlate to the value shown in the chart, it's like some values in the axis like 100k, 200k like that. But the actual real data is something else. So make the axis relatable to the fetched and display that accordingly. 
+Step Up Indicator to be added 
+alpha beta integrations (remember to add fallback for each feature added incase of network blockage)
+
 show recorded stale data at valuation history instead of 0 
-
-
-
-
 
 implement agentic model(
     live market data agent
@@ -21,8 +20,7 @@ also fix model response
 
 
 
-integrate liquid cash holdings
-add manual data adding feature (partially done) [test w/ new ticker]
+integrate liquid cash holding
 fetch-real-time--price viz yfinance
 fetch rolling returns
 add gsr ratio
@@ -58,3 +56,6 @@ SQL Agent: Executes complex granular database queries.
 8. format table headings accordingly also symbols to be added (Rs, %)
 9. integrate MF holdings
 10. Add scenario based like how 15%xirr(not a fixed, could be able to plot for any number given by user) would look in 20yr
+11. update feb data (done)
+12. add manual data adding feature (partially done) [test w/ new ticker]
+13. add indian no system notations in XIRR projections

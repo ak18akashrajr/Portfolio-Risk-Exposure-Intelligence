@@ -319,13 +319,34 @@ def update_holdings(session: Session, mf_prices: Dict[Tuple[str, str], float] = 
 import random
 
 def add_manual_transaction(session: Session, symbol: str, tx_type: str, quantity: float, price: float, exchange: str, stock_name: str = None, isin: str = None, geography: str = "India", category: str = "Equity(Stocks)", folio_number: str = None):
+    # Reverse map for ticker to name lookup if needed, or vice-versa
+    if category == "Mutual Fund":
+        # If symbol is a name in the map, replace with ticker
+        if symbol in MF_TICKER_MAP:
+            stock_name = stock_name or symbol
+            symbol = MF_TICKER_MAP[symbol]
+        # If symbol is already a ticker but name is missing, try to find name
+        elif not stock_name:
+            for name, ticker in MF_TICKER_MAP.items():
+                if ticker == symbol:
+                    stock_name = name
+                    break
+
     # Auto-fetch metadata from existing holdings if not provided
     if not stock_name or not isin:
+        # Try finding by symbol first
         query = select(Holding).where(Holding.symbol == symbol)
         if folio_number:
             query = query.where(Holding.folio_number == folio_number)
         existing_holding = session.exec(query).first()
         
+        # If not found by symbol, and it's a Mutual Fund, try finding by name if symbol was the name
+        if not existing_holding and category == "Mutual Fund" and stock_name:
+            query = select(Holding).where(Holding.stock_name == stock_name)
+            if folio_number:
+                query = query.where(Holding.folio_number == folio_number)
+            existing_holding = session.exec(query).first()
+
         if existing_holding:
             stock_name = stock_name or existing_holding.stock_name
             isin = isin or existing_holding.isin
