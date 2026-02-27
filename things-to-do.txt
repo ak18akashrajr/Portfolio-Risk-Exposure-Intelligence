@@ -2,7 +2,7 @@
 
 Chart Axis Relevancy : So now onto the final ui fix, 
 In the Cash Deployment & Valuation History Section the value in the left side axis does not correspond or correlate to the value shown in the chart, it's like some values in the axis like 100k, 200k like that. But the actual real data is something else. So make the axis relatable to the fetched and display that accordingly. 
-Step Up Indicator to be added 
+
 alpha beta integrations (remember to add fallback for each feature added incase of network blockage)
 
 show recorded stale data at valuation history instead of 0 
@@ -21,7 +21,6 @@ also fix model response
 
 
 integrate liquid cash holding
-fetch-real-time--price viz yfinance
 fetch rolling returns
 add gsr ratio
 add calcs agent
